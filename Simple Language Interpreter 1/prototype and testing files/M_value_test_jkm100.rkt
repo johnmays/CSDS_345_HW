@@ -22,3 +22,5 @@
     (car exp)))
 
 (define leftoperand cadr)
+
+(provide (all-defined-out))
