@@ -24,25 +24,33 @@
 ; Retrieves the value of a given variable
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...))
 (define find_var
+  (lambda (var state)
+    (find_var* var (state_vars state) (state_vals state))))
+
+(define find_var*
   (lambda (var varlist vallist)
     (cond
       [(null? varlist) (error 'initerror "Variable not initialized")]
       [(eq? var (car varlist)) (car vallist)]
-      [else (find_var var (cdr varlist) (cdr vallist))])))
+      [else (find_var* var (cdr varlist) (cdr vallist))])))
 
 ; Adds a variable to the state and returns the state
 (define add_var
-  (lambda (var val varlist vallist)
-    (cons (cons var varlist) (cons (cons val vallist) null))))
+  (lambda (var val state)
+    (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null))))
 
 ; Removes a variable and its corresponding value from the state, if present
 (define remove_var
+  (lambda (var state)
+    (remove_var* (state_vars state) (state_vals state))))
+
+(define remove_var*
   (lambda (var varlist vallist)
     (cond
       [(null? varlist) (cons varlist (cons vallist null))]
       [(eq? var (car varlist)) (cons (cdr varlist) (cons (cdr vallist) null))]
-      [else (cons (cons (car varlist) (car (remove_var var (cdr varlist) (cdr vallist))))
-                  (cons (cons (car vallist) (cadr (remove_var var (cdr varlist) (cdr vallist)))) null))])))
+      [else (cons (cons (car varlist) (car (remove_var* var (cdr varlist) (cdr vallist))))
+                  (cons (cons (car vallist) (cadr (remove_var* var (cdr varlist) (cdr vallist)))) null))])))
 
 
 ; ==================================================================================================
@@ -54,7 +62,7 @@
   (lambda (expr state)
     (cond
       [(number? expr) expr]                                                                                   ; Numeric
-      [(var? expr) (find_var expr (state_vars state) (state_vals state))]                                      ; Variable
+      [(var? expr) (find_var expr state)]                                                                     ; Variable
       [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Addition
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
        (- (M_value (l_operand expr) state) (M_value (r_operand expr) state))]                                 ; Subtraction
@@ -69,7 +77,7 @@
   (lambda (expr state)
     (cond
       [(boolean? expr) expr]                                                                                  ; Boolean
-      [(var? expr) (find_var expr (state_vars state) (state_vals state))]                                      ; Variable
+      [(var? expr) (find_var expr state)]                                                                     ; Variable
       [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                          ; Negation
       [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]          ; And
       [(eq? (pre_op expr) '||) (or (M_bool (l_operand expr) state) (M_bool (r_operand expr) state))]          ; Or
