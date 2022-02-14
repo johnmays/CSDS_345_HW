@@ -1,1 +1,0 @@
-("8.3" ta6nt ("e0e83ce077a7725b80d5d28c796e973faa4fa1dd" . "570c72dd686dc8f5125330af81e435f7b0d76e5b") #"C:\\Users\\tangj\\OneDrive\\Documents\\CSDS345\\CSDS_364_GHW\\Simple Language Interpreter 1\\interpreter\\lex.rkt" (collects #"errortrace" #"errortrace-key.rkt") (collects #"racket" #"main.rkt") (collects #"racket" #"runtime-config.rkt"))

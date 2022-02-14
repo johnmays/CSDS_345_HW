@@ -4,3 +4,7 @@
 
 # racket files
 **/.rkt~
+**/.bak
+
+# ignoring Racket's compiled files directories
+/compiled
