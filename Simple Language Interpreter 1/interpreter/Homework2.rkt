@@ -51,12 +51,21 @@
       [else (error 'badop "Bad operator")])))
 
 ; Evaluates the result of a prefix boolean expression
-;(define M_bool
- ; (lambda (expr)
-  ;  (cond
-   ;   [(boolean? expr) expr]
-    ;  [(eq? (pre_op expr) '!) (not (M_bool expr))]
-     ; [(eq?
+(define M_bool
+  (lambda (expr state)
+    (cond
+      [(boolean? expr) expr]                                                                                  ; Boolean
+      [(var? expr) (M_varval expr (state_vars state) (state_vals state))]                                     ; Variable
+      [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                          ; Negation
+      [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]          ; And
+      [(eq? (pre_op expr) '||) (or (M_bool (l_operand expr) state) (M_bool (r_operand expr) state))]          ; Or
+      [(eq? (pre_op expr) '==) (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state))]       ; Equality
+      [(eq? (pre_op expr) '!=) (not (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state)))] ; Inequality
+      [(eq? (pre_op expr) '<) (< (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Less than
+      [(eq? (pre_op expr) '<=) (<= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Less than or equals
+      [(eq? (pre_op expr) '>) (> (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Greater than
+      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Greather than or equals
+      [else (error 'badop "Bad operator")])))
 
 
 ; ==================================================================================================
