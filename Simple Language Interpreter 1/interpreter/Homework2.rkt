@@ -86,11 +86,10 @@
       [(eq? (pre_op expr) '<) (< (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Less than
       [(eq? (pre_op expr) '<=) (<= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Less than or equals
       [(eq? (pre_op expr) '>) (> (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Greater than
-      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Greather than or equals
+      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Greater than or equals
       [else (error 'badop "Bad operator")])))
 
 
 ; ==================================================================================================
 ;                                         STATE FUNCTIONS
 ; ==================================================================================================
-
