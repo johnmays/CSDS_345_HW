@@ -60,6 +60,7 @@
       [else (inlist? var (cdr varlist))])))
 
 ; Removes a variable and its corresponding value from the state, if present.
+; Otherwise, the state is unchanged.
 (define remove_var
   (lambda (var state)
     (remove_var_helper var (state_vars state) (state_vals state))))
