@@ -42,7 +42,8 @@
 (define find_var_helper
   (lambda (var varlist vallist)
     (cond
-      [(null? varlist) (error 'initerror "Variable not initialized")]
+      [(null? varlist) (error 'varerror "Variable not declared")]
+      [(and (eq? var (car varlist)) (void? (car vallist))) (error 'varerror "Variable not assigned")]
       [(eq? var (car varlist)) (car vallist)]
       [else (find_var_helper var (cdr varlist) (cdr vallist))])))
 
@@ -50,16 +51,16 @@
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
-    (if (inlist? var (car state))
+    (if (declared? var (state_vals state))
         (error 'declerror "Variable already declared")
         (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null)))))
 
-(define inlist?
+(define declared?
   (lambda (var varlist)
     (cond
       [(null? varlist) #f]
       [(eq? var (car varlist)) #t]
-      [else (inlist? var (cdr varlist))])))
+      [else (declared? var (cdr varlist))])))
 
 ; Removes a variable and its corresponding value from the state, if present.
 ; Otherwise, the state is unchanged.
@@ -147,15 +148,17 @@
 
 ; Returns a state that results after the execution of a while loop.
 (define M_while
-  (lambda (statement state)
-    (if (M_bool (condition statement) state)
-        (M_while statement (M_statementlist (loop_body statement) state))
+  (lambda (stmt state)
+    (if (M_bool (condition stmt) state)
+        (M_while stmt (M_statementlist (loop_body stmt) state))
         state)))
 
 ; Returns the resulting state after a variable is assigned
 (define M_assign
-  (lambda (statement state)
-    (add_var (var_name statement) (M_value (var_value statement) state) (remove_var (var_name statement) state))))
+  (lambda (stmt state)
+    (if (not (declared? (var_name stmt) (state_vars state)))
+        (error 'assignerror "Variable not declared")
+        (add_var (var_name stmt) (M_value (var_value stmt) state) (remove_var (var_name stmt) state)))))
 
 ; Evaluates the state after a sequence of statements
 (define M_statementlist
