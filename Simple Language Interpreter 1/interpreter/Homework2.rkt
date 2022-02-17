@@ -16,11 +16,13 @@
 (define var_value caddr)
 
 (define condition cadr)
-(define stmt1 caddr)
-(define elif cdddr)
-(define stmt2 cadddr)
+(define stmt1 cddr)
+(define stmt2 cdddr)
 
-(define loopbody caddr)
+(define loop_body cddr)
+
+(define curr_stmt car)
+(define next_stmt cdr)
 
 ; ==================================================================================================
 ;                                         HELPER FUNCTIONS
@@ -116,7 +118,7 @@
 ; ==================================================================================================
 
 ; General state function which evaluates the change in the state given a particular statement
-(define M_state
+(define M_statement
   (lambda (stmt state)
     (cond
       [(eq? (pre_op stmt) 'var) (M_declaration stmt state)]
@@ -124,7 +126,7 @@
       [(eq? (pre_op stmt) 'return) 'return]
       [(eq? (pre_op stmt) 'if) (M_if stmt state)]
       [(eq? (pre_op stmt) 'while) (M_while stmt state)]
-      [else (pre_op 'badop "Invalid statement")])))
+      [else (error 'badop "Invalid statement")])))
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -138,19 +140,26 @@
 (define M_if
   (lambda (stmt state)
     (if (M_bool (condition stmt) state)
-        (M_state (stmt1 stmt) state)
-        (if (null? (elif stmt))
-            (state)
-            (M_state (stmt2 stmt) state)))))
+        (M_statementlist (stmt1 stmt) state)
+        (if (null? (stmt2 stmt))
+            state
+            (M_statementlist (stmt2 stmt) state)))))
 
 ; Returns a state that results after the execution of a while loop.
 (define M_while
   (lambda (statement state)
     (if (M_bool (condition statement) state)
-        (M_while statement (M_state (loopbody statement) state))
-        (state))))
+        (M_while statement (M_statementlist (loop_body statement) state))
+        state)))
 
 ; Returns the resulting state after a variable is assigned
 (define M_assign
   (lambda (statement state)
     (add_var (var_name statement) (M_value (var_value statement) state) (remove_var (var_name statement) state))))
+
+; Evaluates the state after a sequence of statements
+(define M_statementlist
+  (lambda (stmt state)
+    (if (null? (next_stmt stmt))
+        (M_statement (curr_stmt stmt) state)
+        (M_statementlist (next_stmt stmt) (M_statement (curr_stmt stmt) state)))))
