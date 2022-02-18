@@ -9,3 +9,4 @@
 # ignoring Racket's compiled files directories
 /compiled
 compiled/
+*.bak
