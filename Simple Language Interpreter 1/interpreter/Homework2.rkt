@@ -16,8 +16,8 @@
 (define var_value caddr)
 
 (define condition cadr)
-(define stmt1 cddr)
-(define stmt2 cdddr)
+(define stmt1 caddr)
+(define stmt2 cadddr)
 
 (define loop_body cddr)
 
@@ -86,6 +86,7 @@
   (lambda (expr state)
     (cond
       [(number? expr) expr]                                                                                   ; Numeric
+      [(boolean? expr) (M_bool expr state)]
       [(var? expr) (find_var expr state)]                                                                     ; Variable
       [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Addition
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
@@ -118,16 +119,7 @@
 ;                                         STATE FUNCTIONS
 ; ==================================================================================================
 
-; General state function which evaluates the change in the state given a particular statement
-(define M_statement
-  (lambda (stmt state)
-    (cond
-      [(eq? (pre_op stmt) 'var) (M_declaration stmt state)]
-      [(eq? (pre_op stmt) '=) (M_assign stmt state)]
-      [(eq? (pre_op stmt) 'return) 'return]
-      [(eq? (pre_op stmt) 'if) (M_if stmt state)]
-      [(eq? (pre_op stmt) 'while) (M_while stmt state)]
-      [else (error 'badop "Invalid statement")])))
+
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -141,16 +133,16 @@
 (define M_if
   (lambda (stmt state)
     (if (M_bool (condition stmt) state)
-        (M_statementlist (stmt1 stmt) state)
+        (M_state (stmt1 stmt) state)
         (if (null? (stmt2 stmt))
             state
-            (M_statementlist (stmt2 stmt) state)))))
+            (M_state (stmt2 stmt) state)))))
 
 ; Returns a state that results after the execution of a while loop.
 (define M_while
   (lambda (stmt state)
     (if (M_bool (condition stmt) state)
-        (M_while stmt (M_statementlist (loop_body stmt) state))
+        (M_while stmt (M_state (loop_body stmt) state))
         state)))
 
 ; Returns the resulting state after a variable is assigned
@@ -160,9 +152,15 @@
         (error 'assignerror "Variable not declared")
         (add_var (var_name stmt) (M_value (var_value stmt) state) (remove_var (var_name stmt) state)))))
 
-; Evaluates the state after a sequence of statements
-(define M_statementlist
-  (lambda (stmt state)
-    (if (null? (next_stmt stmt))
-        (M_statement (curr_stmt stmt) state)
-        (M_statementlist (next_stmt stmt) (M_statement (curr_stmt stmt) state)))))
+;Maps state of a list of statement or one statement
+(define M_state
+  (lambda (stmt-list state)
+    (cond
+      [(null? stmt-list) state];(find_var 'return state)]
+      [(list? (car stmt-list)) (M_state (cdr stmt-list) (M_state (car stmt-list) state))]
+      [(eq? (pre_op stmt-list) 'var) (M_declaration stmt-list state)]
+      [(eq? (pre_op stmt-list) '=) (M_assign stmt-list state)]
+      [(eq? (pre_op stmt-list) 'if)(M_if stmt-list state)]
+      [(eq? (pre_op stmt-list) 'while) (M_while stmt-list state)]
+      [else (error 'badop "Invalid statement")])))
+      
