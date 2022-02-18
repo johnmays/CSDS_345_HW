@@ -5,24 +5,35 @@
 ; ==================================================================================================
 ;                                           ABSTRACTIONS
 ; ==================================================================================================
+; Evaluation abstractions
 (define pre_op car)
 (define l_operand cadr)
 (define r_operand caddr)
 
+; State access abstractions
 (define state_vars car)
 (define state_vals cadr)
 
+; Variable access abstractions
 (define var_name cadr)
 (define var_value caddr)
 
+; If-statement & while-loop abstractions
 (define condition cadr)
 (define stmt1 caddr)
+(define elif cdddr)
 (define stmt2 cadddr)
-
 (define loop_body cddr)
 
+; Statement list abstractions
 (define curr_stmt car)
 (define next_stmt cdr)
+
+; Return abstraction
+(define ret_val cadr)
+
+; Empty state
+(define empty_state '(()()))
 
 ; ==================================================================================================
 ;                                         HELPER FUNCTIONS
@@ -55,6 +66,7 @@
         (error 'declerror "Variable already declared")
         (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null)))))
 
+; Checks if a variable has been declared (and is present in the variable list)
 (define declared?
   (lambda (var varlist)
     (cond
@@ -90,7 +102,7 @@
       [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Addition
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
        (- (M_value (l_operand expr) state) (M_value (r_operand expr) state))]                                     ; Subtraction
-      [(eq? (pre_op expr) '-) (- 0 (l_operand expr) state)]                                                       ; Negation
+      [(eq? (pre_op expr) '-) (- 0 (M_value (l_operand expr) state))]                                             ; Negation
       [(eq? (pre_op expr) '*) (* (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Multiplication
       [(eq? (pre_op expr) '/) (quotient (M_value (l_operand expr) state) (M_value (r_operand expr) state))]       ; Division
       [(eq? (pre_op expr) '%) (remainder (M_value (l_operand expr) state) (M_value (r_operand expr) state))]      ; Modulus
@@ -100,7 +112,8 @@
 (define M_bool
   (lambda (expr state)
     (cond
-      [(boolean? expr) expr]                                                                                      ; Boolean
+      [(eq? expr 'true) #t]                                                                                       ; Boolean values
+      [(eq? expr 'false) #f]
       [(var? expr) (find_var expr state)]                                                                         ; Variable
       [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                              ; Negation
       [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]              ; And
@@ -131,7 +144,7 @@
   (lambda (stmt state)
     (if (M_bool (condition stmt) state)
         (M_state (stmt1 stmt) state)
-        (if (null? (stmt2 stmt))
+        (if (null? (elif stmt))
             state
             (M_state (stmt2 stmt) state)))))
 
@@ -149,15 +162,32 @@
         (error 'assignerror "Variable not declared")
         (add_var (var_name stmt) (M_value (var_value stmt) state) (remove_var (var_name stmt) state)))))
 
-;Maps state of a list of statement or one statement
+; Returns the resulting state after a statement or sequence of statements
+; A state with a singular value (not an association list) represents the return value of the program
 (define M_state
   (lambda (stmts state)
     (cond
-      [(null? stmts) state];(find_var 'return state)]
+      [(or (null? stmts) (not (list? state))) state]
       [(list? (car stmts)) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state))]
+      [(eq? (pre_op stmts) 'return) (M_return stmts state)]
       [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
       [(eq? (pre_op stmts) '=) (M_assign stmts state)]
-      [(eq? (pre_op stmts) 'if)(M_if stmts state)]
+      [(eq? (pre_op stmts) 'if) (M_if stmts state)]
       [(eq? (pre_op stmts) 'while) (M_while stmts state)]
       [else (error 'badop "Invalid statement")])))
-      
+
+; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false
+(define M_return
+  (lambda (stmt state)
+    (if (number? (M_value (ret_val stmt) state))
+        (M_value (ret_val stmt) state)
+        (if (M_bool (ret_val stmt) state)
+            'true
+            'false))))
+
+; ==================================================================================================
+;                                                MAIN
+; ==================================================================================================
+(define interpret
+  (lambda (filename)
+    (M_state (parser filename) empty_state)))
