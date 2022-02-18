@@ -1,0 +1,11 @@
+#lang racket
+(
+(define M_return
+  (lambda (state)
+    (if (and (declared? 'return (car state)) (not (eq? (find_var 'return state) (void) 
+        (cond
+           [(eq? (find_var 'return state) #t) 'true]
+           [(eq? (find_var 'return state) #f) 'false]
+           [else (find_var 'return state)])
+        #f)))
+                                
