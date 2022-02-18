@@ -81,45 +81,42 @@
 ;                                       EVALUATION FUNCTIONS
 ; ==================================================================================================
 
-; Evaluates the value of an prefix mathematical expression.
+; Evaluates the value of a general expression.
 (define M_value
   (lambda (expr state)
     (cond
-      [(number? expr) expr]                                                                                   ; Numeric
-      [(boolean? expr) (M_bool expr state)]
-      [(var? expr) (find_var expr state)]                                                                     ; Variable
-      [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Addition
+      [(number? expr) expr]                                                                                       ; Numeric
+      [(var? expr) (find_var expr state)]                                                                         ; Variable
+      [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Addition
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
-       (- (M_value (l_operand expr) state) (M_value (r_operand expr) state))]                                 ; Subtraction
-      [(eq? (pre_op expr) '-) (- 0 (l_operand expr) state)]                                                   ; Negation
-      [(eq? (pre_op expr) '*) (* (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Multiplication
-      [(eq? (pre_op expr) '/) (quotient (M_value (l_operand expr) state) (M_value (r_operand expr) state))]   ; Integer division
-      [(eq? (pre_op expr) '%) (remainder (M_value (l_operand expr) state) (M_value (r_operand expr) state))]  ; Modulus
-      [else (error 'badop "Bad operator")])))
+       (- (M_value (l_operand expr) state) (M_value (r_operand expr) state))]                                     ; Subtraction
+      [(eq? (pre_op expr) '-) (- 0 (l_operand expr) state)]                                                       ; Negation
+      [(eq? (pre_op expr) '*) (* (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Multiplication
+      [(eq? (pre_op expr) '/) (quotient (M_value (l_operand expr) state) (M_value (r_operand expr) state))]       ; Division
+      [(eq? (pre_op expr) '%) (remainder (M_value (l_operand expr) state) (M_value (r_operand expr) state))]      ; Modulus
+      [else (M_bool expr state)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
   (lambda (expr state)
     (cond
-      [(boolean? expr) expr]                                                                                  ; Boolean
-      [(var? expr) (find_var expr state)]                                                                     ; Variable
-      [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                          ; Negation
-      [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]          ; And
-      [(eq? (pre_op expr) '||) (or (M_bool (l_operand expr) state) (M_bool (r_operand expr) state))]          ; Or
-      [(eq? (pre_op expr) '==) (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state))]       ; Equality
-      [(eq? (pre_op expr) '!=) (not (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state)))] ; Inequality
-      [(eq? (pre_op expr) '<) (< (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Less than
-      [(eq? (pre_op expr) '<=) (<= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Less than or equals
-      [(eq? (pre_op expr) '>) (> (M_value (l_operand expr) state) (M_value (r_operand expr) state))]          ; Greater than
-      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]        ; Greater than or equals
+      [(boolean? expr) expr]                                                                                      ; Boolean
+      [(var? expr) (find_var expr state)]                                                                         ; Variable
+      [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                              ; Negation
+      [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]              ; And
+      [(eq? (pre_op expr) '||) (or (M_bool (l_operand expr) state) (M_bool (r_operand expr) state))]              ; Or
+      [(eq? (pre_op expr) '==) (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state))]           ; Equality
+      [(eq? (pre_op expr) '!=) (not (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state)))]     ; Inequality
+      [(eq? (pre_op expr) '<) (< (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Less than
+      [(eq? (pre_op expr) '<=) (<= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]            ; Less than or equals
+      [(eq? (pre_op expr) '>) (> (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Greater than
+      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]            ; Greater than or equals
       [else (error 'badop "Bad operator")])))
 
 
 ; ==================================================================================================
 ;                                         STATE FUNCTIONS
 ; ==================================================================================================
-
-
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -154,13 +151,13 @@
 
 ;Maps state of a list of statement or one statement
 (define M_state
-  (lambda (stmt-list state)
+  (lambda (stmts state)
     (cond
-      [(null? stmt-list) state];(find_var 'return state)]
-      [(list? (car stmt-list)) (M_state (cdr stmt-list) (M_state (car stmt-list) state))]
-      [(eq? (pre_op stmt-list) 'var) (M_declaration stmt-list state)]
-      [(eq? (pre_op stmt-list) '=) (M_assign stmt-list state)]
-      [(eq? (pre_op stmt-list) 'if)(M_if stmt-list state)]
-      [(eq? (pre_op stmt-list) 'while) (M_while stmt-list state)]
+      [(null? stmts) state];(find_var 'return state)]
+      [(list? (car stmts)) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state))]
+      [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
+      [(eq? (pre_op stmts) '=) (M_assign stmts state)]
+      [(eq? (pre_op stmts) 'if)(M_if stmts state)]
+      [(eq? (pre_op stmts) 'while) (M_while stmts state)]
       [else (error 'badop "Invalid statement")])))
       
