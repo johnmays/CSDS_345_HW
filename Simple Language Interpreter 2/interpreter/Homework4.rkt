@@ -95,35 +95,35 @@
 
 ; Evaluates the value of a general expression.
 (define M_value
-  (lambda (expr state)
+  (lambda (expr state return)
     (cond
-      [(number? expr) expr]                                                                                       ; Numeric
-      [(var? expr) (find_var expr state)]                                                                         ; Variable
-      [(eq? (pre_op expr) '+) (+ (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Addition
+      [(number? expr) (return expr)] ; Numeric
+      [(var? expr) (find_var expr state)]; Variable
+      [(eq? (pre_op expr) '+) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]; Addition
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
-       (- (M_value (l_operand expr) state) (M_value (r_operand expr) state))]                                     ; Subtraction
-      [(eq? (pre_op expr) '-) (- 0 (M_value (l_operand expr) state))]                                             ; Negation
-      [(eq? (pre_op expr) '*) (* (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Multiplication
-      [(eq? (pre_op expr) '/) (quotient (M_value (l_operand expr) state) (M_value (r_operand expr) state))]       ; Division
-      [(eq? (pre_op expr) '%) (remainder (M_value (l_operand expr) state) (M_value (r_operand expr) state))]      ; Modulus
+       (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]; Subtraction
+      [(eq? (pre_op expr) '-) (M_value (l_operand expr) state (lambda (v) (return (- 0 v))))]; Negation
+      [(eq? (pre_op expr) '*) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (* v1 v2))))))]; Multiplication
+      [(eq? (pre_op expr) '/) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (quotient v1 v2))))))]       ; Division
+      [(eq? (pre_op expr) '%) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (remainder v1 v2))))))]      ; Modulus
       [else (M_bool expr state)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
-  (lambda (expr state)
+  (lambda (expr state return)
     (cond
-      [(eq? expr 'true) #t]                                                                                       ; Boolean values
-      [(eq? expr 'false) #f]
+      [(eq? expr 'true) (return #t)]                                                                                       ; Boolean values
+      [(eq? expr 'false) (return #f)]
       [(var? expr) (find_var expr state)]                                                                         ; Variable
-      [(eq? (pre_op expr) '!) (not (M_bool (l_operand expr) state))]                                              ; Negation
-      [(eq? (pre_op expr) '&&) (and (M_bool (l_operand expr) state) (M_bool(r_operand expr) state))]              ; And
-      [(eq? (pre_op expr) '||) (or (M_bool (l_operand expr) state) (M_bool (r_operand expr) state))]              ; Or
-      [(eq? (pre_op expr) '==) (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state))]           ; Equality
-      [(eq? (pre_op expr) '!=) (not (eq? (M_value (l_operand expr) state) (M_value (r_operand expr) state)))]     ; Inequality
-      [(eq? (pre_op expr) '<) (< (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Less than
-      [(eq? (pre_op expr) '<=) (<= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]            ; Less than or equals
-      [(eq? (pre_op expr) '>) (> (M_value (l_operand expr) state) (M_value (r_operand expr) state))]              ; Greater than
-      [(eq? (pre_op expr) '>=) (>= (M_value (l_operand expr) state) (M_value (r_operand expr) state))]            ; Greater than or equals
+      [(eq? (pre_op expr) '!) (M_bool (l_operand expr) state (lambda (v1) (return (not v1))))]                    ; Negation
+      [(eq? (pre_op expr) '&&) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]; And
+      [(eq? (pre_op expr) '||) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]              ; Or
+      [(eq? (pre_op expr) '==) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]         ; Equality
+      [(eq? (pre_op expr) '!=) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]     ; Inequality
+      [(eq? (pre_op expr) '<)  (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (< v1 v2))))))] ; Less than
+      [(eq? (pre_op expr) '<=) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (<= v1 v2))))))]            ; Less than or equals
+      [(eq? (pre_op expr) '>) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]             ; Greater than
+      [(eq? (pre_op expr) '>=) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (>= v1 v2))))))]           ; Greater than or equals
       [else (error 'badop "Bad operator")])))
 
 
