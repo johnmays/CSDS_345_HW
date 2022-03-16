@@ -78,15 +78,15 @@
 ; Otherwise, the state is unchanged.
 (define remove_var
   (lambda (var state)
-    (remove_var_helper var (state_vars state) (state_vals state))))
+    (remove_var_helper var (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
 
 (define remove_var_helper
-  (lambda (var varlist vallist)
+  (lambda (var varlist vallist return)
     (cond
-      [(null? varlist) (cons varlist (cons vallist null))]
-      [(eq? var (car varlist)) (cons (cdr varlist) (cons (cdr vallist) null))]
-      [else (cons (cons (car varlist) (car (remove_var_helper var (cdr varlist) (cdr vallist))))
-                  (cons (cons (car vallist) (cadr (remove_var_helper var (cdr varlist) (cdr vallist)))) null))])))
+      [(null? varlist) (return null null)]
+      [(eq? var (car varlist)) (return (cdr varlist) (cdr vallist))]
+      [else (remove_var_helper var (cdr varlist) (cdr vallist)
+                               (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
 
 
 ; ==================================================================================================
