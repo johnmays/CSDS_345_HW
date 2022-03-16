@@ -62,7 +62,7 @@
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
-    (if (declared? var (state_vals state))
+    (if (declared? var (state_vars state))
         (error 'declerror "Variable already declared")
         (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null)))))
 
