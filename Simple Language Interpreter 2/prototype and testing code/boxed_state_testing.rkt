@@ -1,5 +1,7 @@
 #lang racket
 
+; EVERYTHING IN THIS DOCUMENT SHOULD NOW BE FITTED FOR A BOXED STATE - John
+
 ; State access abstractions
 (define state_vars car)
 (define state_vals cadr)
@@ -13,7 +15,7 @@
     (cond
       [(null? varlist) (error 'varerror "Variable not declared")]
       [(and (eq? var (car varlist)) (void? (car vallist))) (error 'varerror "Variable not assigned")]
-      [(eq? var (car varlist)) (car vallist)]
+      [(eq? var (car varlist)) (unbox (car vallist))]
       [else (find_var_helper var (cdr varlist) (cdr vallist))])))
 
 ; Checks if a variable has been declared (and is present in the variable list)
@@ -30,6 +32,6 @@
   (lambda (var val state)
     (if (declared? var (state_vals state))
         (error 'declerror "Variable already declared")
-        (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null)))))
+        (cons (cons var (state_vars state)) (cons (cons (box val) (state_vals state)) null)))))
 
 (define s '(()()))
