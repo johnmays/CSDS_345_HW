@@ -54,7 +54,7 @@
   (lambda (var varlist vallist)
     (cond
       [(null? varlist) (error 'varerror "Variable not declared")]
-      [(and (eq? var (car varlist)) (void? (car vallist))) (error 'varerror "Variable not assigned")]
+      [(and (eq? var (car varlist)) (void? (unbox (car vallist)))) (error 'varerror "Variable not assigned")]
       [(eq? var (car varlist)) (unbox (car vallist))]
       [else (find_var_helper var (cdr varlist) (cdr vallist))])))
 
@@ -75,18 +75,32 @@
       [else (declared? var (cdr varlist))])))
 
 ; Removes a variable and its corresponding value from the state, if present.
-; Otherwise, the state is unchanged.
-(define remove_var
-  (lambda (var state)
-    (remove_var_helper var (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
+; Otherwise, the state is unchanged. [Currently unused]
+;(define remove_var
+;  (lambda (var state)
+;    (remove_var_helper var (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
+;
+;(define remove_var_helper
+;  (lambda (var varlist vallist return)
+;    (cond
+;      [(null? varlist) (return null null)]
+;      [(eq? var (car varlist)) (return (cdr varlist) (cdr vallist))]
+;      [else (remove_var_helper var (cdr varlist) (cdr vallist)
+;                               (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
 
-(define remove_var_helper
-  (lambda (var varlist vallist return)
+; Assigns a particular value to a given variable.
+; This utilizes set-box!, which will cause side effects by default.
+(define assign_var!
+  (lambda (var value state)
+    (assign_var_helper! var value (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
+
+(define assign_var_helper!
+  (lambda (var value varlist vallist return)
     (cond
-      [(null? varlist) (return null null)]
-      [(eq? var (car varlist)) (return (cdr varlist) (cdr vallist))]
-      [else (remove_var_helper var (cdr varlist) (cdr vallist)
-                               (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
+      [(null? varlist) (error 'assignerror "Variable not declared.")]
+      [(eq? var (car varlist)) (begin (set-box! (car vallist) value) (return varlist vallist))]
+      [else (assign_var_helper! var value (cdr varlist) (cdr vallist)
+                                (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
 
 
 ; ==================================================================================================
@@ -166,9 +180,7 @@
 ; Returns the resulting state after a variable is assigned
 (define M_assign
   (lambda (stmt state)
-    (if (not (declared? (var_name stmt) (state_vars state)))
-        (error 'assignerror "Variable not declared")
-        (add_var (var_name stmt) (M_value (var_value stmt) state) (remove_var (var_name stmt) state)))))
+    (assign_var! (var_name stmt) (M_value (var_value stmt) state) state)))
 
 ; Returns the resulting state after a statement or sequence of statements
 ; A state with a singular value (not an association list) represents the return value of the program
