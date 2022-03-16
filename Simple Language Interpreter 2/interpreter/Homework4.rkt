@@ -55,7 +55,7 @@
     (cond
       [(null? varlist) (error 'varerror "Variable not declared")]
       [(and (eq? var (car varlist)) (void? (car vallist))) (error 'varerror "Variable not assigned")]
-      [(eq? var (car varlist)) (car vallist)]
+      [(eq? var (car varlist)) (unbox (car vallist))]
       [else (find_var_helper var (cdr varlist) (cdr vallist))])))
 
 ; Adds a variable to the state and returns the state.
@@ -64,7 +64,7 @@
   (lambda (var val state)
     (if (declared? var (state_vars state))
         (error 'declerror "Variable already declared")
-        (cons (cons var (state_vars state)) (cons (cons val (state_vals state)) null)))))
+        (list (cons var (state_vars state)) (cons (box val) (state_vals state))))))
 
 ; Checks if a variable has been declared (and is present in the variable list)
 (define declared?
@@ -95,35 +95,43 @@
 
 ; Evaluates the value of a general expression.
 (define M_value
+  (lambda (expr state)
+    (M_value_helper expr state (lambda (v) v))))
+
+(define M_value_helper
   (lambda (expr state return)
     (cond
-      [(number? expr) (return expr)] ; Numeric
-      [(var? expr) (find_var expr state)]; Variable
-      [(eq? (pre_op expr) '+) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]; Addition
-      [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))
-       (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]; Subtraction
-      [(eq? (pre_op expr) '-) (M_value (l_operand expr) state (lambda (v) (return (- 0 v))))]; Negation
-      [(eq? (pre_op expr) '*) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (* v1 v2))))))]; Multiplication
-      [(eq? (pre_op expr) '/) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (quotient v1 v2))))))]       ; Division
-      [(eq? (pre_op expr) '%) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (remainder v1 v2))))))]      ; Modulus
+      [(number? expr) (return expr)]
+      [(var? expr) (return (find_var expr state))]
+      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
+      [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
+                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
+      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))))]
+      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))))))]
+      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))))))]
+      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2))))))]
       [else (M_bool expr state)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
+  (lambda (expr state)
+    (M_bool_helper expr state (lambda (v) v))))
+
+(define M_bool_helper
   (lambda (expr state return)
     (cond
-      [(eq? expr 'true) (return #t)]                                                                                       ; Boolean values
+      [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
-      [(var? expr) (find_var expr state)]                                                                         ; Variable
-      [(eq? (pre_op expr) '!) (M_bool (l_operand expr) state (lambda (v1) (return (not v1))))]                    ; Negation
-      [(eq? (pre_op expr) '&&) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]; And
-      [(eq? (pre_op expr) '||) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]              ; Or
-      [(eq? (pre_op expr) '==) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]         ; Equality
-      [(eq? (pre_op expr) '!=) (M_bool (l_operand expr) state (lambda (v1) (M_bool (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]     ; Inequality
-      [(eq? (pre_op expr) '<)  (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (< v1 v2))))))] ; Less than
-      [(eq? (pre_op expr) '<=) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (<= v1 v2))))))]            ; Less than or equals
-      [(eq? (pre_op expr) '>) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]             ; Greater than
-      [(eq? (pre_op expr) '>=) (M_value (l_operand expr) state (lambda (v1) (M_value (r_operand expr) state (lambda (v2) (return (>= v1 v2))))))]           ; Greater than or equals
+      [(var? expr) (return (find_var expr state))]
+      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))))]
+      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]
+      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]
+      [(eq? (pre_op expr) '==) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]
+      [(eq? (pre_op expr) '!=) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]
+      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))))))]
+      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))))))]
+      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]
+      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))))))]
       [else (error 'badop "Bad operator")])))
 
 
