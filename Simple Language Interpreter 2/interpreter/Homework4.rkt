@@ -46,26 +46,24 @@
     (not (or (pair? x) (null? x)))))
 
 ; Retrieves the value of a given variable.
-; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...))
+; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [nested states here])
 (define find_var
   (lambda (var state)
-    (find_var_helper var (state_vars state) (state_vals state))))
-
-(define find_var_helper
-  (lambda (var varlist vallist)
     (cond
-      [(null? varlist) (error 'varerror "Variable not declared")]
-      [(and (eq? var (car varlist)) (void? (unbox (car vallist)))) (error 'varerror "Variable not assigned")]
-      [(eq? var (car varlist)) (unbox (car vallist))]
-      [else (find_var_helper var (cdr varlist) (cdr vallist))])))
+      [(equal? state empty_state) (error 'varerror "Variable not declared")]
+      [(null? (state_vars state)) (find_var var (outer_state state))]
+      [(and (eq? var (car (state_vars state))) (void? (unbox (car (state_vals state))))) (error 'varerror "Variable not assigned")]
+      [(eq? var (car (state_vars state))) (unbox (car (state_vals state)))]
+      [else (find_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
 
 ; Adds a variable to the state and returns the state.
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
-    (if (declared? var state)
-        (error 'declerror "Variable already declared")
-        (list (cons var (state_vars state)) (cons (box val) (state_vals state)) (outer_state state)))))
+    (cond
+      [(declared? var state) (error 'declerror "Variable already declared")]
+      [(null? (cddr state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
+      [else (list (cons var (state_vars state)) (cons (box val) (state_vals state)) (outer_state state))])))
 
 (define declared?
   (lambda (var state)
@@ -88,6 +86,11 @@
       [(eq? var (car varlist)) (begin (set-box! (car vallist) value) (return varlist vallist))]
       [else (assign_var_helper! var value (cdr varlist) (cdr vallist)
                                 (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
+
+; Creates a new layer for the state.
+(define create_inner_state
+  (lambda (state)
+    (list null null state)))
 
 
 ; ==================================================================================================
@@ -198,3 +201,13 @@
 (define interpret
   (lambda (filename)
     (M_state (parser filename) empty_state)))
+
+; Testing state
+(define test_state
+  (add_var 'f #f
+           (add_var 'e (void)
+                    (add_var 'd 3
+                             (create_inner_state
+                              (add_var 'c 2
+                                       (add_var 'b 1
+                                                (add_var 'a #t empty_state))))))))
