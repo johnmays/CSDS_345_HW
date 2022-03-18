@@ -13,6 +13,7 @@
 ; State access abstractions
 (define state_vars car)
 (define state_vals cadr)
+(define outer_state caddr)
 
 ; Variable access abstractions
 (define var_name cadr)
@@ -62,31 +63,17 @@
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
-    (if (declared? var (state_vars state))
+    (if (declared? var state)
         (error 'declerror "Variable already declared")
-        (list (cons var (state_vars state)) (cons (box val) (state_vals state))))))
+        (list (cons var (state_vars state)) (cons (box val) (state_vals state)) (outer_state state)))))
 
-; Checks if a variable has been declared (and is present in the variable list)
 (define declared?
-  (lambda (var varlist)
+  (lambda (var state)
     (cond
-      [(null? varlist) #f]
-      [(eq? var (car varlist)) #t]
-      [else (declared? var (cdr varlist))])))
-
-; Removes a variable and its corresponding value from the state, if present.
-; Otherwise, the state is unchanged. [Currently unused]
-;(define remove_var
-;  (lambda (var state)
-;    (remove_var_helper var (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
-;
-;(define remove_var_helper
-;  (lambda (var varlist vallist return)
-;    (cond
-;      [(null? varlist) (return null null)]
-;      [(eq? var (car varlist)) (return (cdr varlist) (cdr vallist))]
-;      [else (remove_var_helper var (cdr varlist) (cdr vallist)
-;                               (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
+      [(equal? state empty_state) #f]
+      [(null? (state_vars state)) (declared? var (outer_state state))]
+      [(eq? var (car (state_vars state))) #t]
+      [else (declared? var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
 
 ; Assigns a particular value to a given variable.
 ; This utilizes set-box!, which will cause side effects by default.
