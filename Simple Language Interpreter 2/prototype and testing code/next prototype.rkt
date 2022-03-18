@@ -173,9 +173,8 @@
 (define M_state
   (lambda (stmts state return next)
     (cond
-      [(null? stmts) (next state)]
-      [(list? (car stmts)) (M_state (curr_stmt stmts) state return (call/cc (lambda (inner_state)
-                                                                              (M_state (next_stmt stmts) inner_state return next))))]
+      [(null? stmts) next]
+      [(list? (car stmts)) (call/cc (lambda (nex) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return nex) return next)))]
       [(eq? (pre_op stmts) 'return) (M_return stmts state return)]
       [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
       [(eq? (pre_op stmts) '=) (M_assign stmts state)]
