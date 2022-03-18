@@ -77,15 +77,11 @@
 ; This utilizes set-box!, which will cause side effects by default.
 (define assign_var!
   (lambda (var value state)
-    (assign_var_helper! var value (state_vars state) (state_vals state) (lambda (vars vals) (list vars vals)))))
-
-(define assign_var_helper!
-  (lambda (var value varlist vallist return)
     (cond
-      [(null? varlist) (error 'assignerror "Variable not declared.")]
-      [(eq? var (car varlist)) (begin (set-box! (car vallist) value) (return varlist vallist))]
-      [else (assign_var_helper! var value (cdr varlist) (cdr vallist)
-                                (lambda (vars vals) (return (cons (car varlist) vars) (cons (car vallist) vals))))])))
+      [(equal? state empty_state) (error 'varerror "Variable not declared")]
+      [(null? (state_vars state)) (assign_var! var value (outer_state state))]
+      [(eq? var (car (state_vars state))) (begin (set-box! (car (state_vals state)) value) state)]
+      [else (assign_var! var value (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
 
 ; Creates a new layer for the state.
 (define create_inner_state
@@ -130,8 +126,8 @@
       [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))))]
       [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]
       [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]
-      [(eq? (pre_op expr) '==) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]
-      [(eq? (pre_op expr) '!=) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]
+      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]
+      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]
       [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))))))]
       [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))))))]
       [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]
@@ -177,13 +173,14 @@
 (define M_state
   (lambda (stmts state)
     (cond
-      [(or (null? stmts) (not (list? state))) state]
+      [(not (list? state)) state]
       [(list? (car stmts)) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state))]
       [(eq? (pre_op stmts) 'return) (M_return stmts state)]
       [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
       [(eq? (pre_op stmts) '=) (M_assign stmts state)]
       [(eq? (pre_op stmts) 'if) (M_if stmts state)]
       [(eq? (pre_op stmts) 'while) (M_while stmts state)]
+      [(eq? (pre_op stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state))]
       [else (error 'badop "Invalid statement")])))
 
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false
