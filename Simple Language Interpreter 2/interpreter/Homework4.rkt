@@ -149,18 +149,18 @@
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
-  (lambda (stmt state)
+  (lambda (stmt state return)
     (if (M_bool (condition stmt) state)
-        (M_state (stmt1 stmt) state)
+        (M_state (stmt1 stmt) state return)
         (if (null? (elif stmt))
             state
-            (M_state (stmt2 stmt) state)))))
+            (M_state (stmt2 stmt) state return)))))
 
 ; Returns a state that results after the execution of a while loop.
 (define M_while
-  (lambda (stmt state)
+  (lambda (stmt state return)
     (if (M_bool (condition stmt) state)
-        (M_while stmt (M_state (loop_body stmt) state))
+        (M_while stmt (M_state (loop_body stmt) state return) return)
         state)))
 
 ; Returns the resulting state after a variable is assigned
@@ -171,33 +171,33 @@
 ; Returns the resulting state after a statement or sequence of statements
 ; A state with a singular value (not an association list) represents the return value of the program
 (define M_state
-  (lambda (stmts state)
+  (lambda (stmts state return)
     (cond
-      [(not (list? state)) state]
-      [(list? (car stmts)) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state))]
-      [(eq? (pre_op stmts) 'return) (M_return stmts state)]
-      [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
-      [(eq? (pre_op stmts) '=) (M_assign stmts state)]
-      [(eq? (pre_op stmts) 'if) (M_if stmts state)]
-      [(eq? (pre_op stmts) 'while) (M_while stmts state)]
-      [(eq? (pre_op stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state))]
+      [(null? stmts) state]
+      [(list? (curr_stmt stmts)) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return) return)]
+      [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
+      [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
+      [(eq? (curr_stmt stmts) '=) (M_assign stmts state)]
+      [(eq? (curr_stmt stmts) 'if) (M_if stmts state return)]
+      [(eq? (curr_stmt stmts) 'while) (M_while stmts state return)]
+      [(eq? (curr_stmt stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return)]
       [else (error 'badop "Invalid statement")])))
 
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false
 (define M_return
-  (lambda (stmt state)
+  (lambda (stmt state return)
     (if (number? (M_value (ret_val stmt) state))
-        (M_value (ret_val stmt) state)
+        (return (M_value (ret_val stmt) state))
         (if (M_bool (ret_val stmt) state)
-            'true
-            'false))))
+            (return 'true)
+            (return 'false)))))
 
 ; ==================================================================================================
 ;                                                MAIN
 ; ==================================================================================================
 (define interpret
   (lambda (filename)
-    (M_state (parser filename) empty_state)))
+    (call/cc (lambda (ret) (M_state (parser filename) empty_state ret)))))
 
 ; Testing state
 (define test_state

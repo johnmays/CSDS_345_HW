@@ -29,6 +29,7 @@
 ; Statement list abstractions
 (define curr_stmt car)
 (define next_stmt cdr)
+(define block_stmt caar)
 
 ; Return abstraction
 (define ret_val cadr)
@@ -165,7 +166,7 @@
 
 ; Returns the resulting state after a variable is assigned
 (define M_assign
-  (lambda (stmt state)
+  (λ (stmt state)
     (assign_var! (var_name stmt) (M_value (var_value stmt) state) state)))
 
 ; Returns the resulting state after a statement or sequence of statements
@@ -174,7 +175,7 @@
   (lambda (stmts state return next)
     (cond
       [(null? stmts) next]
-      [(list? (car stmts)) (call/cc (lambda (nex) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return nex) return next)))]
+      [(list? (car stmts)) (M_block stmts state return next)]
       [(eq? (pre_op stmts) 'return) (M_return stmts state return)]
       [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
       [(eq? (pre_op stmts) '=) (M_assign stmts state)]
@@ -183,9 +184,19 @@
       [(eq? (pre_op stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next)]
       [else (error 'badop "Invalid statement")])))
 
+; call/cc (lambda (nex) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return nex) return next)))
+; ((if (== x 0) (begin (... ... ...) (... ... ...))) (= x 5) (return x))
+
+; Evaluates a block of code. This will create the continuations needed for control flow.
+(define M_block
+  (lambda (stmts state return next)
+    (cond
+      [(eq? (block_stmt stmts) 'if) (call/cc (lambda (inner_next)
+                                    
+
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false
 (define M_return
-  (lambda (stmt state return)
+  (lambda (stmt state return next)
     (if (number? (M_value (ret_val stmt) state))
         (return (M_value (ret_val stmt) state))
         (if (M_bool (ret_val stmt) state)
