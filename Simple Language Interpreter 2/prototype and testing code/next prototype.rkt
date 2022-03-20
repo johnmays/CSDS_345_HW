@@ -1,5 +1,5 @@
-#lang racket
 ; Group 5 - Josh Tang, John Mays, Abhay Pant
+#lang racket
 (require "simpleParser.rkt")
 
 ; ==================================================================================================
@@ -29,7 +29,7 @@
 ; Statement list abstractions
 (define curr_stmt car)
 (define next_stmt cdr)
-(define block_stmt caar)
+(define curr_inner_stmt caar)
 
 ; Return abstraction
 (define ret_val cadr)
@@ -47,7 +47,7 @@
     (not (or (pair? x) (null? x)))))
 
 ; Retrieves the value of a given variable.
-; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [nested states here])
+; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [nested states here]).
 (define find_var
   (lambda (var state)
     (cond
@@ -150,53 +150,57 @@
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
-  (lambda (stmt state return next)
+  (lambda (stmt state return next break)
     (if (M_bool (condition stmt) state)
-        (M_state (stmt1 stmt) state return next)
+        (M_state (stmt1 stmt) state return next break)
         (if (null? (elif stmt))
             state
-            (M_state (stmt2 stmt) state return next)))))
+            (M_state (stmt2 stmt) state return next break)))))
 
 ; Returns a state that results after the execution of a while loop.
+; We invoke a helper method, loop, that does the actual looping for us.
 (define M_while
-  (lambda (stmt state return next)
-    (if (M_bool (condition stmt) state)
-        (M_while stmt (M_state (loop_body stmt) state return next) return next)
-        state)))
+  (lambda (stmt state return next prev_break)
+    (loop stmt state return next
+                (lambda (break_state) (next break_state)))))
 
-; Returns the resulting state after a variable is assigned
+(define loop
+  (lambda (stmt state return next break)
+    (if (M_bool (condition stmt) state)
+        (M_state (loop_body stmt) state return
+                (lambda (repeat_state) (loop stmt repeat_state return next break)) break)
+        (next state))))
+
+; Returns the resulting state after a variable is assigned.
 (define M_assign
-  (λ (stmt state)
+  (lambda (stmt state)
     (assign_var! (var_name stmt) (M_value (var_value stmt) state) state)))
 
-; Returns the resulting state after a statement or sequence of statements
-; A state with a singular value (not an association list) represents the return value of the program
+; Returns the resulting state after a statement or sequence of statements.
 (define M_state
-  (lambda (stmts state return next)
+  (lambda (stmts state return next break)
     (cond
-      [(null? stmts) next]
-      [(list? (car stmts)) (M_block stmts state return next)]
-      [(eq? (pre_op stmts) 'return) (M_return stmts state return)]
-      [(eq? (pre_op stmts) 'var) (M_declaration stmts state)]
-      [(eq? (pre_op stmts) '=) (M_assign stmts state)]
-      [(eq? (pre_op stmts) 'if) (M_if stmts state return next)]
-      [(eq? (pre_op stmts) 'while) (M_while stmts state return next)]
-      [(eq? (pre_op stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next)]
+      [(null? stmts) (next state)]
+      [(list? (curr_stmt stmts)) (M_block stmts state return next break)]
+      [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
+      [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
+      [(eq? (curr_stmt stmts) '=) (M_assign stmts state)]
+      [(eq? (curr_stmt stmts) 'if) (M_if stmts state return next break)]
+      [(eq? (curr_stmt stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next break)]
+      [(eq? (curr_stmt stmts) 'break) (break state)]
       [else (error 'badop "Invalid statement")])))
 
-; call/cc (lambda (nex) (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return nex) return next)))
-; ((if (== x 0) (begin (... ... ...) (... ... ...))) (= x 5) (return x))
-
-; Evaluates a block of code. This will create the continuations needed for control flow.
+; Handles the continuations that occur from block statements (like while and try.).
 (define M_block
-  (lambda (stmts state return next)
-    (cond
-      [(eq? (block_stmt stmts) 'if) (call/cc (lambda (inner_next)
-                                    
-
-; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false
+  (lambda (stmts state return next break)
+    (let ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break))])
+      (cond
+        [(eq? (curr_inner_stmt stmts) 'while) (M_while (curr_stmt stmts) state return new_next break)]
+        [else (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return next break) return next break)]))))
+      
+; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
-  (lambda (stmt state return next)
+  (lambda (stmt state return)
     (if (number? (M_value (ret_val stmt) state))
         (return (M_value (ret_val stmt) state))
         (if (M_bool (ret_val stmt) state)
@@ -208,7 +212,7 @@
 ; ==================================================================================================
 (define interpret
   (lambda (filename)
-    (call/cc (lambda (ret) (M_state (parser filename) empty_state ret 'invalid_next)))))
+    (call/cc (lambda (ret) (M_state (parser filename) empty_state ret 'invalid_next 'invalid_break)))))
 
 ; Testing state
 (define test_state
