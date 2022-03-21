@@ -177,7 +177,7 @@
 (define M_while
   (lambda (stmt state return next prev_break continue throw)
     (loop (condition stmt) (loop_body stmt) state return next
-                (lambda (break_state) (next break_state)) continue throw) continue throw))                     ; <-- This is where we specify our break continuation.
+                (lambda (break_state) (next break_state)) continue throw) continue throw))                           ; <-- This is where we specify our break continuation.
 
 (define loop
   (lambda (condition body state return next break continue throw)
@@ -195,7 +195,9 @@
 (define M_state
   (lambda (stmts state return next break continue throw)
     (cond
-      [(null? stmts) (next state)]
+      [(null? stmts) (if (eq? next 'invalid_next)
+                         (pop_inner_state state)
+                         (next (pop_inner_state state)))]
       [(list? (curr_stmt stmts)) (M_block stmts state return next break continue throw)]
       [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
       [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
