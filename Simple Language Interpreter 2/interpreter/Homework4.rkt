@@ -75,7 +75,7 @@
   (lambda (var state)
     (cond
       [(equal? state empty_state) #f]
-      [(null? (state_vars state)) #f];(declared? var (pop_inner_state state))]
+      [(null? (state_vars state)) #f]
       [(eq? var (car (state_vars state))) #t]
       [else (declared? var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
 
@@ -214,11 +214,11 @@
 ; Handles the continuations that occur from block statements (like while loops).
 (define M_block
   (lambda (stmts state return next break continue throw)
-    (let* ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break continue throw))]
+    (letrec ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break continue throw))]
            [new_break (lambda (next_state) (M_state (finally_block (car stmts)) next_state return break break continue throw))]
            [finally_cont (lambda (next_state) (M_state (finally_block (car stmts)) next_state return new_next break continue throw))]
            [new_throw (lambda (next_state) (M_state (finally_block (car stmts)) next_state return next break continue throw))]
-           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var (caadr (catch_block (car stmts))) e next_state) return finally_cont new_break continue new_throw))])
+           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var (caadr (catch_block (car stmts))) e next_state) return finally_cont new_break continue my_throw))])
       (cond
         [(eq? (curr_inner_stmt stmts) 'while) (M_while (curr_stmt stmts) state return new_next break continue throw)]
         [(eq? (curr_inner_stmt stmts) 'if) (M_if (curr_stmt stmts) state return new_next break continue throw)]
