@@ -206,7 +206,7 @@
       [(eq? (curr_stmt stmts) 'break) (break (pop_inner_state state))]
       [(eq? (curr_stmt stmts) 'continue) (continue state)]
       [(eq? (curr_stmt stmts) 'if) (M_if stmts state return next break continue throw)]
-      [(eq? (curr_stmt stmts) 'throw) (throw (throw_block stmts) state)]
+      [(eq? (curr_stmt stmts) 'throw) (throw (M_value (throw_block stmts)) state)]
       [(eq? (curr_stmt stmts) 'catch) (next (M_block (catch_block stmts) state return next break continue throw))]
       [(eq? (curr_stmt stmts) 'finally) (M_state (cdr stmts) state return next break continue throw)]
       [else (error 'badop "Invalid statement: ~a" stmts)])))
