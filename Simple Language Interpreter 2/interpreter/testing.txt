@@ -1,25 +1,16 @@
-<<<<<<< HEAD
 var x = 10;
-var y = 4;
-if (x < y) {
-  var min = x;
-}
-else {
-  var min = y;
-=======
-var x;
+var result = 1;
 
 try {
-  x = -20;
-  if (x < 0)
-    throw 10;
-  x = x + 5;
+  while (x < 10000) {
+    result = result - 1;
+    x = x * 10;
+
+    if (x > 1000)
+      throw x;
+  }
 }
-catch(e) {
-  x = e;
+catch (ex) {
+  throw 1;
 }
-finally {
-  x = x + 100;
->>>>>>> parent of 027f70d (Try catch kinda works)
-}
-return min;
+return result;

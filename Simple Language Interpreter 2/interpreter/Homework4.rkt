@@ -33,6 +33,7 @@
 (define catch_block caddr)
 (define catch_var caaddr)
 (define try_block cadr)
+(define throw_block cadr)
 
 ; Return abstraction
 (define ret_val cadr)
@@ -202,35 +203,26 @@
       [(eq? (curr_stmt stmts) '=) (M_assign stmts state)]
       [(eq? (curr_stmt stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmts) 'break) (break (pop_inner_state state))]
-      [(eq? (curr_stmt stmts) 'continue) (continue state)]
-<<<<<<< HEAD
+      [(eq? (curr_stmt stmts) 'continue) (continue (pop_inner_state state))]
       [(eq? (curr_stmt stmts) 'if) (M_if stmts state return next break continue throw)]
-      [(eq? (curr_stmt stmts) 'throw) (throw (M_value (throw_block stmts)) state)]
-      [(eq? (curr_stmt stmts) 'catch) (next (M_block (catch_block stmts) state return next break continue throw))]
-=======
-      [(eq? (curr_stmt stmts) 'throw) (throw (cadr stmts) (next state))]
-      [(eq? (curr_stmt stmts) 'catch) (M_state (caaddr stmts) state return next break continue throw)]
->>>>>>> parent of 027f70d (Try catch kinda works)
-      [(eq? (curr_stmt stmts) 'finally) (M_state (cdr stmts) state return next break continue throw)]
+      [(eq? (curr_stmt stmts) 'throw) (throw (M_value (throw_block stmts) state) state)]
+      [(eq? (curr_stmt stmts) 'catch) (next (M_block (catch_block stmts) (create_inner_state state) return next break continue throw))]   
+      [(eq? (curr_stmt stmts) 'finally) (M_state (cdr stmts) (create_inner_state state) return next break continue throw)]
       [else (error 'badop "Invalid statement: ~a" stmts)])))
 
 ; Handles the continuations that occur from block statements (like while loops).
 (define M_block
   (lambda (stmts state return next break continue throw)
-    (letrec ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break continue throw))]
+    (let* ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break continue throw))]
            [new_break (lambda (next_state) (M_state (finally_block (car stmts)) next_state return break break continue throw))]
            [finally_cont (lambda (next_state) (M_state (finally_block (car stmts)) next_state return new_next break continue throw))]
            [new_throw (lambda (next_state) (M_state (finally_block (car stmts)) next_state return next break continue throw))]
-<<<<<<< HEAD
-           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var (caadr (catch_block (car stmts))) e next_state) return finally_cont new_break continue my_throw))])
-=======
-           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var 'e e next_state) return finally_cont new_break continue new_throw))])
->>>>>>> parent of 027f70d (Try catch kinda works)
+           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var (caadr (catch_block (car stmts))) e next_state) return finally_cont new_break continue new_throw))])
       (cond
         [(eq? (curr_inner_stmt stmts) 'while) (M_while (curr_stmt stmts) state return new_next break continue throw)]
         [(eq? (curr_inner_stmt stmts) 'if) (M_if (curr_stmt stmts) state return new_next break continue throw)]
-        [(eq? (curr_inner_stmt stmts) 'try) (M_state (try_block (curr_stmt stmts)) state return finally_cont new_break continue my_throw)]
-        [else (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return next break continue throw) return next break continue throw)]))))    
+        [(eq? (curr_inner_stmt stmts) 'try) (M_state (try_block (curr_stmt stmts)) (create_inner_state state) return finally_cont new_break continue my_throw)]
+        [else (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return next break continue throw) return next break continue throw)])))  )
       
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
