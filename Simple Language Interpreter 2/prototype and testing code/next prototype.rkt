@@ -195,7 +195,6 @@
       [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
       [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
       [(eq? (curr_stmt stmts) '=) (M_assign stmts state)]
-      [(eq? (curr_stmt stmts) 'if) (M_if stmts state return next break continue)]
       [(eq? (curr_stmt stmts) 'break) (break (pop_inner_state state))]
       [(eq? (curr_stmt stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next break continue)]
       [(eq? (curr_stmt stmts) 'continue) (continue state)]
