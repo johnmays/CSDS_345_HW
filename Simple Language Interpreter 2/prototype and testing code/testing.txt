@@ -1,9 +1,4 @@
 var x = 0;
-while (x < 10) {
-  x = x + 2;
-  if (x == 8) {
-    x = 4;
-    break;
-  }
-}
+while ((x = x + 1) < 21)
+  x = x;
 return x;
