@@ -1,0 +1,42 @@
+Here are some tests for your interpreter.</p>
+
+Test 1: This code should return 20.
+
+Test 2: This code should return 164.
+
+Test 3: This code should return 32.
+
+Test 4: This code should return 2.
+
+Test 5: This code should give an error.
+
+Test 6: This code should return 25.
+
+Test 7: This code should return 21.
+
+Test 8: This code should return 6.
+
+Test 9: This code should return -1.
+
+Test 10: This code should return 789.
+
+Test 11: This code should give an error.
+
+Test 12: This code should give an error.
+
+Test 13: This code should give an error.
+
+Test 14: This code should return 12.
+
+Test 15 should return 125.
+
+Test 16 should return 110.
+
+Test 17 should return 2000400.
+
+Test 18 should return 101.
+
+Test 19 should give an error.
+
+Test 20: This code should return 21.
+
