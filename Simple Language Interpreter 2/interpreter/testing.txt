@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 var x = 10;
 var y = 4;
 if (x < y) {
@@ -5,5 +6,20 @@ if (x < y) {
 }
 else {
   var min = y;
+=======
+var x;
+
+try {
+  x = -20;
+  if (x < 0)
+    throw 10;
+  x = x + 5;
+}
+catch(e) {
+  x = e;
+}
+finally {
+  x = x + 100;
+>>>>>>> parent of 027f70d (Try catch kinda works)
 }
 return min;
