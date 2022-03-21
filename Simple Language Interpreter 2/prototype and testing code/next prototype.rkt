@@ -190,7 +190,9 @@
 (define M_state
   (lambda (stmts state return next break continue)
     (cond
-      [(null? stmts) (next (pop_inner_state state))]
+      [(null? stmts) (if (eq? next 'invalid_next)
+                         (pop_inner_state state)
+                         (next (pop_inner_state state)))]
       [(list? (curr_stmt stmts)) (M_block stmts state return next break continue)]
       [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
       [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
@@ -235,3 +237,6 @@
                               (add_var 'c 2
                                        (add_var 'b 1
                                                 (add_var 'a #t empty_state))))))))
+
+; ((while (> x 0) (begin (var y 2) (var z (* x y)) (= x z))) (return x))
+; ((if (== (% x 2) 0) (begin (= x (+ x 1))) (begin (= x (- x 1)))) (return x))
