@@ -214,7 +214,7 @@
            [new_return (lambda (v) (M_block finally_stmts state return (lambda (s) (return s)) break continue throw))]
            [new_break (lambda (v) (M_block finally_stmts state return (lambda (s) (break s)) break continue throw))]
            [new_continue (lambda (v) (M_block finally_stmts state return (lambda (s) (continue s)) break continue throw))]
-           [new_throw (lambda (ex v) (create_throw_continuations (catch_block stmt) state return next break continue throw finally_stmts))])
+           [new_throw (create_throw_continuations (catch_block stmt) state return next break continue throw finally_stmts)])
       (M_block try_stmts state new_return (lambda (st) (M_block finally_stmts st return next break continue throw)) new_break new_continue new_throw))))
     
 (define blockify_try
