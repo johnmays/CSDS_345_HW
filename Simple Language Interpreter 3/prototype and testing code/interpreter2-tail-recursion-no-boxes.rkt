@@ -1,6 +1,6 @@
 ; If you are using scheme instead of racket, comment these two lines, uncomment the (load "simpleParser.scm") and comment the (require "simpleParser.rkt")
 #lang racket
-(require "functionParser.rkt")
+(require "simpleParser.rkt")
 ; (load "simpleParser.scm")
 
 ; An interpreter for the simple language using tail recursion for the M_state functions and does not handle side effects.
@@ -103,7 +103,7 @@
                        (get-body catch-statement) 
                        (insert (catch-var catch-statement) ex (push-frame env))
                        return 
-                       (lambda (env2) (break (pop-frame env2))) 
+                       (lambda (env2) (break (pop-frame env2)))
                        (lambda (env2) (continue (pop-frame env2))) 
                        (lambda (v env2) (throw v (pop-frame env2))) 
                        (lambda (env2) (interpret-block finally-block (pop-frame env2) return break continue throw next))))))))
