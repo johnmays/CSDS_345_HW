@@ -101,7 +101,7 @@
 (define pop_inner_state
   (lambda (state)
     (if (null? (cddr state))
-        (error 'breakerror "Cannot break here.")
+        (error 'stateerror "Invalid state.")
         (caddr state))))
 
 ; ==================================================================================================
@@ -204,7 +204,7 @@
                      (lambda (ex st) (throw ex (pop_inner_state st))))))
 
 ; Evaluates a try/catch/finally statement.
-; We also have helper methods to reuse M_block for the try and finally blocks.
+; We also have helper methods to reuse M_block for the try and finally blocks (by manually inserting the "begin" keyword at those locations).
 ; Another helper method creates all of the next/break/continue/throw continuations as necessary.
 (define M_try
   (lambda (stmt state return next break continue throw)
@@ -288,7 +288,7 @@
                             (lambda (next) next)
                             (lambda (break) (error 'breakerr "Invalid break location"))
                             (lambda (cont) (error 'conterror "Invalid continue location"))
-                            (lambda (throw) (error 'throwerror "Uncaught exception thrown")))))))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown")))))))
 
 ; Testing state
 ; '((f e d) (#&18 #&#<void> #&3) ((c b a) (#&2 #&1 #&#t)))
