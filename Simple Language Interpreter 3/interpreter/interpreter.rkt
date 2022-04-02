@@ -23,15 +23,16 @@
 (define stmt1 caddr)
 (define elif cdddr)
 (define stmt2 cadddr)
-(define loop_body cddr)
+(define loop_body caddr)
 
 ; Statement list abstractions
 (define curr_stmt car)
 (define next_stmt cdr)
-(define curr_inner_stmt caar)
+
+; Catch-try-finally abstractions
 (define finally_block cadddr)
 (define catch_block caddr)
-(define catch_var caaddr)
+(define catch_var caadr)
 (define try_block cadr)
 (define throw_block cadr)
 
@@ -101,7 +102,7 @@
 (define pop_inner_state
   (lambda (state)
     (if (null? (cddr state))
-        (error 'breakerror "Cannot break here.")
+        (error 'stateerror "Invalid state.")
         (caddr state))))
 
 ; ==================================================================================================
@@ -157,10 +158,15 @@
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
 (define M_declaration
-  (lambda (stmt state)
+  (lambda (stmt state next)
     (if (not (null? (cddr stmt)))
-        (add_var (var_name stmt) (M_value (var_value stmt) state) state)
-        (add_var (var_name stmt) (void) state))))
+        (next (add_var (var_name stmt) (M_value (var_value stmt) state) state))
+        (next (add_var (var_name stmt) (void) state)))))
+
+; Returns the resulting state after a variable is assigned.
+(define M_assign
+  (lambda (stmt state next)
+    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state) state))))
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
@@ -174,56 +180,69 @@
 ; Returns a state that results after the execution of a while loop.
 ; We invoke a helper method, loop, that does the actual looping for us.
 (define M_while
-  (lambda (stmt state return next prev_break continue throw)
-    (loop (condition stmt) (loop_body stmt) state return next
-                (lambda (break_state) (next break_state)) continue throw) continue throw))                           ; <-- This is where we specify our break continuation.
+  (lambda (stmt state return next throw)
+    (loop (condition stmt) (loop_body stmt) state return next throw)))
 
 (define loop
-  (lambda (condition body state return next break continue throw)
-    (let ([next_loop (lambda (repeat_state) (loop condition body repeat_state return next break continue throw))])   ; <-- This is where we specify our next loop continuation.
-      (if (M_bool condition state)                                                                                   ; It is used for 'continue' and 'next'.
-          (M_state body state return next_loop break next_loop throw)
-          (next state)))))
+  (lambda (condition body state return next throw)
+    (if (M_bool condition state)
+        (M_state body state return
+                 (lambda (st) (loop condition body st return next throw))
+                 (lambda (st) (next st))                                  ; <-- Break continuation
+                 (lambda (st) (loop condition body st return next throw)) ; <-- Continue continuation (same as next)
+                 throw)
+        (next state))))
 
-; Returns the resulting state after a variable is assigned.
-(define M_assign
-  (lambda (stmt state)
-    (assign_var! (var_name stmt) (M_value (var_value stmt) state) state)))
-
-; Returns the resulting state after a statement or sequence of statements.
-(define M_state
-  (lambda (stmts state return next break continue throw)
-    (cond
-      [(null? stmts) (if (eq? next 'invalid_next)
-                         (pop_inner_state state)
-                         (next (pop_inner_state state)))]
-      [(list? (curr_stmt stmts)) (M_block stmts state return next break continue throw)]
-      [(eq? (curr_stmt stmts) 'return) (M_return stmts state return)]
-      [(eq? (curr_stmt stmts) 'var) (M_declaration stmts state)]
-      [(eq? (curr_stmt stmts) '=) (M_assign stmts state)]
-      [(eq? (curr_stmt stmts) 'begin) (M_state (next_stmt stmts) (create_inner_state state) return next break continue throw)]
-      [(eq? (curr_stmt stmts) 'break) (break (pop_inner_state state))]
-      [(eq? (curr_stmt stmts) 'continue) (continue (pop_inner_state state))]
-      [(eq? (curr_stmt stmts) 'if) (M_if stmts state return next break continue throw)]
-      [(eq? (curr_stmt stmts) 'throw) (throw (M_value (throw_block stmts) state) state)]
-      [(eq? (curr_stmt stmts) 'catch) (next (M_block (catch_block stmts) (create_inner_state state) return next break continue throw))]   
-      [(eq? (curr_stmt stmts) 'finally) (M_state (cdr stmts) (create_inner_state state) return next break continue throw)]
-      [else (error 'badop "Invalid statement: ~a" stmts)])))
-
-; Handles the continuations that occur from block statements (like while loops).
+; Evaluates a block of code.
 (define M_block
   (lambda (stmts state return next break continue throw)
-    (let* ([new_next (lambda (next_state) (M_state (next_stmt stmts) next_state return next break continue throw))]
-           [new_break (lambda (next_state) (M_state (finally_block (car stmts)) next_state return break break continue throw))]
-           [finally_cont (lambda (next_state) (M_state (finally_block (car stmts)) next_state return new_next break continue throw))]
-           [new_throw (lambda (next_state) (M_state (finally_block (car stmts)) next_state return next break continue throw))]
-           [my_throw (lambda (e next_state) (M_state (catch_block (car stmts)) (add_var (caadr (catch_block (car stmts))) e next_state) return finally_cont new_break continue new_throw))])
-      (cond
-        [(eq? (curr_inner_stmt stmts) 'while) (M_while (curr_stmt stmts) state return new_next break continue throw)]
-        [(eq? (curr_inner_stmt stmts) 'if) (M_if (curr_stmt stmts) state return new_next break continue throw)]
-        [(eq? (curr_inner_stmt stmts) 'try) (M_state (try_block (curr_stmt stmts)) (create_inner_state state) return finally_cont new_break continue my_throw)]
-        [else (M_state (next_stmt stmts) (M_state (curr_stmt stmts) state return next break continue throw) return next break continue throw)])))  )
-      
+    (M_statementlist (next_stmt stmts)
+                     (create_inner_state state)
+                     return
+                     (lambda (st) (next (pop_inner_state st)))
+                     (lambda (st) (break (pop_inner_state st)))
+                     (lambda (st) (continue (pop_inner_state st)))
+                     (lambda (ex st) (throw ex (pop_inner_state st))))))
+
+; Evaluates a try/catch/finally statement.
+; We also have helper methods to reuse M_block for the try and finally blocks (by manually inserting the "begin" keyword at those locations).
+; Another helper method creates all of the next/break/continue/throw continuations as necessary.
+(define M_try
+  (lambda (stmt state return next break continue throw)
+    (let* (
+           [try_stmts (blockify_try (try_block stmt))]
+           [finally_stmts (blockify_finally (finally_block stmt))]
+           [new_return (lambda (v) (M_block finally_stmts state return (lambda (s) (return s)) break continue throw))]
+           [new_break (lambda (v) (M_block finally_stmts state return (lambda (s) (break s)) break continue throw))]
+           [new_continue (lambda (v) (M_block finally_stmts state return (lambda (s) (continue s)) break continue throw))]
+           [new_throw (create_throw_continuations (catch_block stmt) state return next break continue throw finally_stmts)])
+      (M_block try_stmts state new_return (lambda (st) (M_block finally_stmts st return next break continue throw)) new_break new_continue new_throw))))
+    
+(define blockify_try
+  (lambda (try_stmt)
+    (cons 'begin try_stmt)))
+
+(define blockify_finally
+  (lambda (finally_stmt)
+    (cond
+      [(null? finally_stmt) '(begin)]
+      [(not (eq? (curr_stmt finally_stmt) 'finally)) (error 'badstmt "Incorrect finally statement.")]
+      [else (cons 'begin (cadr finally_stmt))])))
+
+(define create_throw_continuations
+  (lambda (stmt state return next break continue throw finally)
+    (cond
+      [(null? stmt) (lambda (ex st) (M_block finally state return (lambda (st) (throw ex st)) break continue throw))]
+      [(not (eq? (curr_stmt stmt) 'catch)) (error 'badstmt "Incorrect catch statement.")]
+      [else (lambda (ex st) (M_statementlist
+                             (stmt1 stmt)
+                             (add_var (catch_var stmt) ex (create_inner_state state))
+                             return
+                             (lambda (st1) (M_block finally (pop_inner_state st1) return next break continue throw))
+                             (lambda (st1) (break (pop_inner_state st1)))
+                             (lambda (st1) (continue (pop_inner_state st1)))
+                             (lambda (ex1 st1) (throw ex1 (pop_inner_state st1)))))])))
+    
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
   (lambda (stmt state return)
@@ -233,12 +252,44 @@
             (return 'true)
             (return 'false)))))
 
+; Returns the resulting state after a single statement.
+(define M_state
+  (lambda (stmt state return next break continue throw)
+    (cond
+      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return)]
+      [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next)]
+      [(eq? (curr_stmt stmt) '=) (M_assign stmt state next)]
+      [(eq? (curr_stmt stmt) 'if) (M_if stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'while) (M_while stmt state return next throw)]
+      [(eq? (curr_stmt stmt) 'begin) (M_block stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'break) (break state)]
+      [(eq? (curr_stmt stmt) 'continue) (continue state)]
+      [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
+      [(eq? (curr_stmt stmt) 'finally) (M_state (cdr stmt) (create_inner_state state) return next break continue throw)]
+      [else (error 'badstmt "Invalid statement: ~a" stmt)])))
+
+; Handles lists of statements, which are executed sequentially
+(define M_statementlist
+  (lambda (stmts state return next break continue throw)
+    (if (null? stmts)
+        (next state)
+        (M_state (curr_stmt stmts) state return
+                 (lambda (nstate) (M_statementlist (next_stmt stmts) nstate return next break continue throw)) break continue throw)))) ; <-- This is where we make our 'next' continuation.
+
 ; ==================================================================================================
 ;                                                MAIN
 ; ==================================================================================================
 (define interpret
   (lambda (filename)
-    (call/cc (lambda (ret) (M_state (parser filename) empty_state ret 'invalid_next 'invalid_break 'invalid_continue 'invalid_throw)))))
+    (call/cc (lambda (ret) (M_statementlist
+                            (parser filename)
+                            empty_state
+                            ret
+                            (lambda (next) next)
+                            (lambda (break) (error 'breakerr "Invalid break location"))
+                            (lambda (cont) (error 'conterror "Invalid continue location"))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown")))))))
 
 ; Testing state
 ; '((f e d) (#&18 #&#<void> #&3) ((c b a) (#&2 #&1 #&#t)))

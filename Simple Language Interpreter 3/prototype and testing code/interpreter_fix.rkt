@@ -28,7 +28,8 @@
 ; Statement list abstractions
 (define curr_stmt car)
 (define next_stmt cdr)
-(define curr_inner_stmt caar)
+
+; Catch-try-finally abstractions
 (define finally_block cadddr)
 (define catch_block caddr)
 (define catch_var caadr)
