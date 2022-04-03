@@ -45,7 +45,7 @@
 (define func_name cadr)
 (define func_params caddr)
 (define func_body cadddr)
-
+(define actual_params cddr)
 ; Closure abstractions
 (define closure_params car)
 (define closure_body cadr)
@@ -322,8 +322,27 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'funcall)
+       (begin
+         (define closure (get_func_closure (func_name stmt) state))
+         (M_state
+              (closure_body closure)
+              (bind_params (closure_params closure) (actual_params stmt) state throw ((closure_getstate closure) state))
+              (lambda (s v) (return s v))
+              (lambda (s) (next s))
+              (lambda (s) (error 'breakerror "Break outside of loop"))
+              (lambda (s) (error 'conterror "Continue outside of loop"))
+              (lambda (s e) (throw s e))))
+       ]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
+
+(define bind_params
+  (lambda (formal_params actual_params state throw func_state)
+    (begin
+      (define func_state (create_inner_state func_state))
+      (if (or (null? formal_params) (null? actual_params))
+          func_state
+          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params)) state))))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
@@ -358,7 +377,7 @@
   (lambda (global_state)
     (call/cc (lambda (ret) (M_statementlist
                             (closure_body (get_func_closure 'main global_state))
-                            global_state
+                            (create_inner_state global_state)
                             ret
                             (lambda (next) next)
                             (lambda (break) (error 'breakerror "Invalid break location."))
