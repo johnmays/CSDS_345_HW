@@ -1,36 +1,11 @@
-<<<<<<< Updated upstream
-function fact(n) {
-  var f = 1;
-  while (n > 1) {
-    f = f * n;
-    n = n - 1;
-  }
-  return f;
-}
+var a = 0;
 
-function binom(a, b) {
-  var val = fact(a) / (fact(b) * fact(a-b));
-  return val;
+function b(c) {
+  a = c;
+  return a;
 }
 
 function main() {
-  return binom(6,3);
-=======
-var a = 10;
-var b = 20;
-
-function bmethod() {
-  var b = 30;
-  return a + b;
-}
-
-function cmethod() {
-  var a = 40;
-  return bmethod() + a + b;
-}
-
-function main () {
-  var b = 5;
-  return cmethod() + a + b;
->>>>>>> Stashed changes
+  b(b(5));
+  return a;
 }
