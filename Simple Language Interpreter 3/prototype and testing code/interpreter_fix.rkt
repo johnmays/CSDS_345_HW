@@ -165,7 +165,7 @@
       [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
-                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
+       (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
       [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))))]
       [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))))))]
       [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))))))]
@@ -301,10 +301,26 @@
   (lambda (stmt state next)
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
-; Handles the continuations and the state modifications made during a function call. (TODO)
+; Handles the continuations and the state modifications made during a function call.
 (define M_funcall
   (lambda (stmt state return next break continue throw)
-    (null)))
+    (let ([closure (get_func_closure (func_name stmt) state)])
+      (call/cc (lambda (ret) (
+                              (M_statementlist (closure_body closure)
+                                               (bind_params (closure_params closure) (actual_params stmt) state throw ((closure_getstate closure) state))
+                                               ret
+                                               (lambda (st) (next st))
+                                               (lambda (break) (error 'breakerror "Break outside of loop"))
+                                               (lambda (cont) (error 'conterror "Continue outside of loop"))
+                                               (lambda (ex val) (throw ex val)))))))))
+
+(define bind_params
+  (lambda (formal_params actual_params state throw func_state)
+    (begin
+      (define func_state1 (create_inner_state func_state))
+      (if (or (null? formal_params) (null? actual_params))
+          func_state1
+          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params) state) state))))))
 
 ; Returns the resulting state after a single statement.
 (define M_state
@@ -322,27 +338,8 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall)
-       (begin
-         (define closure (get_func_closure (func_name stmt) state))
-         (M_state
-              (closure_body closure)
-              (bind_params (closure_params closure) (actual_params stmt) state throw ((closure_getstate closure) state))
-              (lambda (s v) (return s v))
-              (lambda (s) (next s))
-              (lambda (s) (error 'breakerror "Break outside of loop"))
-              (lambda (s) (error 'conterror "Continue outside of loop"))
-              (lambda (s e) (throw s e))))
-       ]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
-
-(define bind_params
-  (lambda (formal_params actual_params state throw func_state)
-    (begin
-      (define func_state (create_inner_state func_state))
-      (if (or (null? formal_params) (null? actual_params))
-          func_state
-          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params)) state))))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
@@ -359,7 +356,7 @@
 ; Our main function.
 (define interpret
   (lambda (filename)
-      (execute_main (global_state_bindings (parser filename)))))
+    (execute_main (global_state_bindings (parser filename)))))
 
 ; Our initial pass through the file. This will populate the state with the global variables and function definitions.
 (define global_state_bindings
