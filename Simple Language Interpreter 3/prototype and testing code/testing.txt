@@ -1,16 +1,11 @@
-var x = 10;
-var result = 1;
+var x = 1;
+var y = 10;
+var r = 0;
 
-try {
-  while (x < 10000) {
-    result = result - 1;
-    x = x * 10;
-
-    if (x > 1000)
-      throw x;
+function something() {
+  while (x < y) {
+     r = r + x;
+     x = x + 1;
   }
+  return r;
 }
-catch (ex) {
-  throw 1;
-}
-return result;
