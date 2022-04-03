@@ -5,6 +5,7 @@
 ; ==================================================================================================
 ;                                           ABSTRACTIONS
 ; ==================================================================================================
+
 ; Evaluation abstractions
 (define pre_op car)
 (define l_operand cadr)
@@ -13,6 +14,7 @@
 ; State access abstractions
 (define state_vars car)
 (define state_vals cadr)
+(define next_layer cddr)
 
 ; Variable access abstractions
 (define var_name cadr)
@@ -39,15 +41,18 @@
 ; Return abstraction
 (define ret_val cadr)
 
+; Function definition abstractions
+(define func_name cadr)
+(define func_params caddr)
+(define func_body cadddr)
+
+; Closure abstractions
+(define closure_params car)
+(define closure_body cadr)
+(define closure_getstate caddr)
+
 ; Empty state
 (define empty_state '(()()))
-
-
-;function definition abstractions
-(define func_name cadr)
-(define param_list caddr)
-(define func_body cdddr)
-
 
 ; ==================================================================================================
 ;                                         HELPER FUNCTIONS
@@ -59,15 +64,15 @@
     (not (or (pair? x) (null? x)))))
 
 ; Retrieves the value of a given variable.
-; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [nested states here]).
-(define find_var
+; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
+(define get_var
   (lambda (var state)
     (cond
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(null? (state_vars state)) (find_var var (pop_inner_state state))]
+      [(null? (state_vars state)) (get_var var (pop_inner_state state))]
       [(and (eq? var (car (state_vars state))) (void? (unbox (car (state_vals state))))) (error 'varerror "Variable not assigned: ~a" var)]
-      [(eq? var (car (state_vars state))) (unbox (car (state_vals state)))]
-      [else (find_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
+      [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (unbox (car (state_vals state)))]
+      [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; Adds a variable to the state and returns the state.
 ; If the variable already exists in the state, then raise an error.
@@ -75,16 +80,17 @@
   (lambda (var val state)
     (cond
       [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
-      [(null? (cddr state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
-      [else (list (cons var (state_vars state)) (cons (box val) (state_vals state)) (pop_inner_state state))])))
+      [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
+      [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_inner_state state))])))
 
 (define declared?
   (lambda (var state)
     (cond
-      [(equal? state empty_state) #f]
-      [(null? (state_vars state)) #f]
+      [(null? (state_vars state)) (if (null? (next_layer state))
+                                      #f
+                                      (declared? var (next_layer state)))]
       [(eq? var (car (state_vars state))) #t]
-      [else (declared? var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))))])))
+      [else (declared? var (append (list (cdr (state_vars state)) (cdr (state_vals state))) (next_layer state)))])))
 
 ; Assigns a particular value to a given variable.
 ; This utilizes set-box!, which will cause side effects by default.
@@ -103,15 +109,46 @@
 ; Creates a new layer for the state.
 (define create_inner_state
   (lambda (state)
-    (list null null state)))
+    (append empty_state state)))
 
 ; Pops the newest layer from the state.
 (define pop_inner_state
   (lambda (state)
-    (if (null? (cddr state))
+    (if (null? (next_layer state))
         (error 'stateerror "Invalid state.")
-        (caddr state))))
+        (next_layer state))))
 
+; Creates the function binding along with its closure. The helper functions for the closure are below.
+(define add_func
+  (lambda (name param_list body state)
+    (cond
+      [(declared? name state) (error 'funcerror "Function name already declared: ~a" name)]
+      [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state)))]
+      [else (append (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state))) (pop_inner_state state))])))
+
+; Creates a tuple containing the following:
+;   - formal parameters
+;   - function body
+;   - a function that takes in the current state and returns the portion of state that's visible
+(define make_closure
+  (lambda (param_list body state)
+    (list param_list body
+          (lambda (st) (find_state st state)))))
+
+; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
+(define find_state
+  (lambda (given_state orig_state)
+    (take-right given_state (length orig_state))))
+
+; A function to retrieve a given function's closure.
+(define get_func_closure
+  (lambda (name state)
+    (cond
+      [(equal? state empty_state) (error 'funcerror "Function not found: ~a" name)]
+      [(null? (state_vars state)) (get_func_closure name (pop_inner_state state))]
+      [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
+      [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+    
 ; ==================================================================================================
 ;                                       EVALUATION FUNCTIONS
 ; ==================================================================================================
@@ -125,7 +162,7 @@
   (lambda (expr state return)
     (cond
       [(number? expr) (return expr)]
-      [(var? expr) (return (find_var expr state))]
+      [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
                               (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
@@ -145,7 +182,7 @@
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
-      [(var? expr) (return (find_var expr state))]
+      [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))))]
       [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]
       [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]
@@ -161,6 +198,15 @@
 ; ==================================================================================================
 ;                                         STATE FUNCTIONS
 ; ==================================================================================================
+
+; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
+(define M_return
+  (lambda (stmt state return)
+    (if (number? (M_value (ret_val stmt) state))
+        (return (M_value (ret_val stmt) state))
+        (if (M_bool (ret_val stmt) state)
+            (return 'true)
+            (return 'false)))))
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -249,15 +295,16 @@
                              (lambda (st1) (break (pop_inner_state st1)))
                              (lambda (st1) (continue (pop_inner_state st1)))
                              (lambda (ex1 st1) (throw ex1 (pop_inner_state st1)))))])))
-    
-; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
-(define M_return
-  (lambda (stmt state return)
-    (if (number? (M_value (ret_val stmt) state))
-        (return (M_value (ret_val stmt) state))
-        (if (M_bool (ret_val stmt) state)
-            (return 'true)
-            (return 'false)))))
+
+; Creates a binding for function definitions.
+(define M_fundef
+  (lambda (stmt state next)
+    (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
+
+; Handles the continuations and the state modifications made during a function call. (TODO)
+(define M_funcall
+  (lambda (stmt state return next break continue throw)
+    (null)))
 
 ; Returns the resulting state after a single statement.
 (define M_state
@@ -273,24 +320,10 @@
       [(eq? (curr_stmt stmt) 'continue) (continue state)]
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
-      [(eq? (curr_stmt stmt) 'finally) (M_state (cdr stmt) (create_inner_state state) return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'function) (next (add_var (func_name stmt) (list (param_list stmt) (car (func_body stmt)) (lambda (s) (car s))) state))]
-      [(eq? (curr_stmt stmt) 'funcall)
-       (begin
-         (define closure (find_var (cadr stmt) state))
-         (if (not (null? (caddr stmt)))
-             (M_state (cadr closure) (bind_params (car closure) (caddr stmt) state throw ((caddr closure) state)))
-             (M_state (cadr closure) (bind_params '() '() state throw ((caddr closure) state)))))]
+      [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
-
-;binds function params
-(define bind_params
-  (lambda (formal_params actual_params state throw func_state)
-    (begin
-      (define func_state_0 (create_inner_state func_state))
-      (if (null? formal_params)
-          func_state_0
-          (bind_params (cdr formal_params) (cdr actual_params) (add_var (car formal_params) (car actual_params) func_state_0) throw func_state_0)))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
@@ -303,33 +336,44 @@
 ; ==================================================================================================
 ;                                                MAIN
 ; ==================================================================================================
+
+; Our main function.
 (define interpret
   (lambda (filename)
-    (call/cc (lambda (ret)
-               (begin (define globalstate (M_statementlist
-                            (parser filename)
-                            empty_state
+      (execute_main (global_state_bindings (parser filename)))))
+
+; Our initial pass through the file. This will populate the state with the global variables and function definitions.
+(define global_state_bindings
+  (lambda (stmts)
+    (M_statementlist stmts empty_state
+                     (lambda (ret) (error 'returnerror "Invalid return location."))
+                     (lambda (next) next)
+                     (lambda (break) (error 'breakerr "Invalid break location."))
+                     (lambda (cont) (error 'conterror "Invalid continue location."))
+                     (lambda (ex val) (error 'throwerror "Invalid throw location.")))))
+
+; Our secondary pass through the file, executing whatever is in the declared main() function.
+; (If there is no main function, then get_func_closure will issue an error.)
+(define execute_main
+  (lambda (global_state)
+    (call/cc (lambda (ret) (M_statementlist
+                            (closure_body (get_func_closure 'main global_state))
+                            global_state
                             ret
                             (lambda (next) next)
-                            (lambda (break) (error 'breakerr "Invalid break location"))
-                            (lambda (cont) (error 'conterror "Invalid continue location"))
-                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown"))))
-                      (M_statementlist
-                            (cadr (find_var 'main globalstate)) ;body of main
-                             globalstate
-                             ret
-                            (lambda (next) next)
-                            (lambda (break) (error 'breakerr "Invalid break location"))
-                            (lambda (cont) (error 'conterror "Invalid continue location"))
-                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown"))))))))
+                            (lambda (break) (error 'breakerror "Invalid break location."))
+                            (lambda (cont) (error 'conterror "Invalid continue location."))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown.")))))))
 
 ; Testing state
-; '((f e d) (#&18 #&#<void> #&3) ((c b a) (#&2 #&1 #&#t)))
+; '((g) (#&#t) (f e d) (#&#f #&#<void> #&3) (c b a) (#&2 #&1 #&#t))
 (define test_state
-  (add_var 'f #f
-           (add_var 'e (void)
-                    (add_var 'd 3
-                             (create_inner_state
-                              (add_var 'c 2
-                                       (add_var 'b 1
-                                                (add_var 'a #t empty_state))))))))
+  (add_var 'g #t
+           (create_inner_state
+            (add_var 'f #f
+                     (add_var 'e (void)
+                              (add_var 'd 3
+                                       (create_inner_state
+                                        (add_var 'c 2
+                                                 (add_var 'b 1
+                                                          (add_var 'a #t empty_state))))))))))
