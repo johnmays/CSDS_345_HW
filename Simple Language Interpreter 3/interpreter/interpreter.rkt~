@@ -45,7 +45,6 @@
 (define func_name cadr)
 (define func_params caddr)
 (define func_body cadddr)
-(define actual_params cddr)
 
 ; Closure abstractions
 (define closure_params car)
@@ -156,59 +155,43 @@
 
 ; Evaluates the value of a general expression.
 (define M_value
-  (lambda (expr state next throw)
-    (M_value_helper expr state (lambda (v) v) next throw)))
+  (lambda (expr state)
+    (M_value_helper expr state (lambda (v) v))))
 
 (define M_value_helper
-  (lambda (expr state return next throw)
+  (lambda (expr state return)
     (cond
       [(number? expr) (return expr)]
       [(var? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) next throw)) next throw)]
+      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
-                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) next throw)) next throw)]                                     
-      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) next throw)]
-      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) next throw)) next throw))]
-      [(eq? (pre_op expr) 'funcall) (begin
-                                      (define closure (get_func_closure (func_name expr)))
-                                      (define fstate (bind_params (closure_params closure) (actual_params expr) state throw ((closure_getstate closure) state)))
-                                      (M_state (closure_body closure) fstate
-                                               next                                                                               ; return continuation
-                                               (lambda (s) (error 'nonext "Expressions can't have a next"))                       ; next continuation
-                                               (lambda (s) (error 'badbreak "Cannot break out of a function call/expression"))    ; break continuation
-                                               (lambda (s) (error 'badcontinue "Cannot continue from a function call/expression")); continue continuation
-                                               throw                                                                              ; throw continuation
-                                               ))]
-      [else (M_bool expr state next throw)])))
+                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
+      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))))]
+      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))))))]
+      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))))))]
+      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2))))))]
+      [else (M_bool expr state)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
-  (lambda (expr state next throw)
-    (M_bool_helper expr state (lambda (v) v) next throw)))
+  (lambda (expr state)
+    (M_bool_helper expr state (lambda (v) v))))
 
-; STILL NEED TO REFACTOR THESE ^ V -----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
 (define M_bool_helper
-  (lambda (expr state return next throw)
+  (lambda (expr state return)
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) next throw)]
-      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2)))  next throw)) next throw)]
-      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))) next throw)) next throw)]
-      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2)) next throw))) next throw)]
+      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))))]
+      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))))))]
+      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))))))]
+      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))))))]
+      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))))))]
+      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))))))]
+      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))))))]
+      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]
+      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))))))]
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 
@@ -218,9 +201,9 @@
 
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
-  (lambda (stmt state return next throw)
-    (if (number? (M_value (ret_val stmt) state next throw))
-        (return (M_value (ret_val stmt) state next throw))
+  (lambda (stmt state return)
+    (if (number? (M_value (ret_val stmt) state))
+        (return (M_value (ret_val stmt) state))
         (if (M_bool (ret_val stmt) state)
             (return 'true)
             (return 'false)))))
@@ -228,15 +211,15 @@
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
 (define M_declaration
-  (lambda (stmt state next throw)
+  (lambda (stmt state next)
     (if (not (null? (cddr stmt)))
-        (next (add_var (var_name stmt) (M_value (var_value stmt) state next throw) state))
+        (next (add_var (var_name stmt) (M_value (var_value stmt) state) state))
         (next (add_var (var_name stmt) (void) state)))))
 
 ; Returns the resulting state after a variable is assigned.
 (define M_assign
-  (lambda (stmt state next throw)
-    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state next throw) state))))
+  (lambda (stmt state next)
+    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state) state))))
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
@@ -327,29 +310,20 @@
 (define M_state
   (lambda (stmt state return next break continue throw)
     (cond
-      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return next throw)]
-      [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next throw)]
-      [(eq? (curr_stmt stmt) '=) (M_assign stmt state next throw)]
+      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return)]
+      [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next)]
+      [(eq? (curr_stmt stmt) '=) (M_assign stmt state next)]
       [(eq? (curr_stmt stmt) 'if) (M_if stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'while) (M_while stmt state return next throw)]
       [(eq? (curr_stmt stmt) 'begin) (M_block stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'break) (break state)]
       [(eq? (curr_stmt stmt) 'continue) (continue state)]
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state next throw) state)]
+      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
-
-; Takes a state and binds the formal parameters to the actual parameters inside
-(define bind_params
-  (lambda (formal_params actual_params state throw func_state)
-    (begin
-      (define func_state (create_inner_state func_state))
-      (if (or (null? formal_params) (null? actual_params))
-          func_state
-          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params)) state))))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
