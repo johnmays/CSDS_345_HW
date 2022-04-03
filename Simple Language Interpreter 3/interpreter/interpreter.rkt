@@ -80,7 +80,7 @@
 (define add_var
   (lambda (var val state)
     (cond
-      [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
+      ;[(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
       [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
       [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_inner_state state))])))
 
@@ -173,7 +173,7 @@
       [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) next throw)) next throw))]
       [(eq? (pre_op expr) 'funcall) (begin
                                       (define closure (get_func_closure (func_name expr) state))
-                                      (define fstate (bind_params (closure_params closure) (actual_params expr) state throw ((closure_getstate closure) state)))
+                                      (define fstate (bind_params (closure_params closure) (actual_params expr) state throw (closure_getstate closure) next))
                                       (M_statementlist (closure_body closure) fstate
                                                (lambda (v) v)                                                                     ; return continuation
                                                (lambda (s) (error 'nonext "Expressions can't have a next"))                       ; next continuation
@@ -241,7 +241,7 @@
 ; Returns a state that results after the execution of an if statement.
 (define M_if
   (lambda (stmt state return next break continue throw)
-    (if (M_bool (condition stmt) state)
+    (if (M_bool (condition stmt) state next throw)
         (M_state (stmt1 stmt) state return next break continue throw)
         (if (null? (elif stmt))
             (next state)
@@ -255,7 +255,7 @@
 
 (define loop
   (lambda (condition body state return next throw)
-    (if (M_bool condition state)
+    (if (M_bool condition state next throw )
         (M_state body state return
                  (lambda (st) (loop condition body st return next throw))
                  (lambda (st) (next st))                                  ; <-- Break continuation
@@ -318,11 +318,6 @@
   (lambda (stmt state next)
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
-; Handles the continuations and the state modifications made during a function call. (TODO)
-(define M_funcall
-  (lambda (stmt state return next break continue throw)
-    (null)))
-
 ; Returns the resulting state after a single statement.
 (define M_state
   (lambda (stmt state return next break continue throw)
@@ -342,14 +337,27 @@
       [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
+; Handles the continuations and the state modifications made during a function call.
+(define M_funcall
+  (lambda (stmt state return next break continue throw)
+    (let ([closure (get_func_closure (func_name stmt) state)])
+      (call/cc (lambda (ret) (
+                              (M_statementlist (closure_body closure)
+                                               (bind_params (closure_params closure) (actual_params stmt) state throw (closure_getstate closure) next)
+                                               ret
+                                               (lambda (st) (next st))
+                                               (lambda (break) (error 'breakerror "Break outside of loop"))
+                                               (lambda (cont) (error 'conterror "Continue outside of loop"))
+                                               (lambda (ex val) (throw ex val)))))))))
+
 ; Takes a state and binds the formal parameters to the actual parameters inside
 (define bind_params
-  (lambda (formal_params actual_params state throw func_state)
+  (lambda (formal_params actual_params state throw func_state next)
     (begin
       (define func_state1 (create_inner_state func_state))
       (if (or (null? formal_params) (null? actual_params))
           func_state1
-          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params)) state))))))
+          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params) state next throw) state) next)))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
@@ -384,7 +392,7 @@
   (lambda (global_state)
     (call/cc (lambda (ret) (M_statementlist
                             (closure_body (get_func_closure 'main global_state))
-                            global_state
+                            (create_inner_state global_state)
                             ret
                             (lambda (next) next)
                             (lambda (break) (error 'breakerror "Invalid break location."))
