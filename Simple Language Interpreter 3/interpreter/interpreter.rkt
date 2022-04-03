@@ -172,10 +172,10 @@
       [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) next throw)) next throw)]
       [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) next throw)) next throw))]
       [(eq? (pre_op expr) 'funcall) (begin
-                                      (define closure (get_func_closure (func_name expr)))
+                                      (define closure (get_func_closure (func_name expr) state))
                                       (define fstate (bind_params (closure_params closure) (actual_params expr) state throw ((closure_getstate closure) state)))
-                                      (M_state (closure_body closure) fstate
-                                               next                                                                               ; return continuation
+                                      (M_statementlist (closure_body closure) fstate
+                                               (lambda (v) v)                                                                     ; return continuation
                                                (lambda (s) (error 'nonext "Expressions can't have a next"))                       ; next continuation
                                                (lambda (s) (error 'badbreak "Cannot break out of a function call/expression"))    ; break continuation
                                                (lambda (s) (error 'badcontinue "Cannot continue from a function call/expression")); continue continuation
@@ -346,9 +346,9 @@
 (define bind_params
   (lambda (formal_params actual_params state throw func_state)
     (begin
-      (define func_state (create_inner_state func_state))
+      (define func_state1 (create_inner_state func_state))
       (if (or (null? formal_params) (null? actual_params))
-          func_state
+          func_state1
           (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params)) state))))))
 
 ; Handles lists of statements, which are executed sequentially
