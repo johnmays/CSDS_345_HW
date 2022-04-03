@@ -267,6 +267,7 @@
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (cdr stmt) (create_inner_state state) return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'function) (add_var (cadr stmt) (list  '() (car (cadddr stmt)) (lambda (s) s)) state)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles lists of statements, which are executed sequentially
@@ -282,14 +283,23 @@
 ; ==================================================================================================
 (define interpret
   (lambda (filename)
-    (call/cc (lambda (ret) (M_statementlist
+    (call/cc (lambda (ret)
+               (begin (define globalstate (M_statementlist
                             (parser filename)
                             empty_state
                             ret
                             (lambda (next) next)
                             (lambda (break) (error 'breakerr "Invalid break location"))
                             (lambda (cont) (error 'conterror "Invalid continue location"))
-                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown")))))))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown"))))
+                      (M_state
+                            (cadr (find_var 'main globalstate)) ;body of main
+                             globalstate
+                             ret
+                            (lambda (next) next)
+                            (lambda (break) (error 'breakerr "Invalid break location"))
+                            (lambda (cont) (error 'conterror "Invalid continue location"))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown"))))))))
 
 ; Testing state
 ; '((f e d) (#&18 #&#<void> #&3) ((c b a) (#&2 #&1 #&#t)))
