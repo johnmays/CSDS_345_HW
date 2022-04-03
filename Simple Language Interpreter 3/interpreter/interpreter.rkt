@@ -42,6 +42,13 @@
 ; Empty state
 (define empty_state '(()()))
 
+
+;function definition abstractions
+(define func_name cadr)
+(define param_list caddr)
+(define func_body cdddr)
+
+
 ; ==================================================================================================
 ;                                         HELPER FUNCTIONS
 ; ==================================================================================================
@@ -267,8 +274,23 @@
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (cdr stmt) (create_inner_state state) return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'function) (add_var (cadr stmt) (list  '() (car (cadddr stmt)) (lambda (s) s)) state)]
+      [(eq? (curr_stmt stmt) 'function) (next (add_var (func_name stmt) (list (param_list stmt) (car (func_body stmt)) (lambda (s) (car s))) state))]
+      [(eq? (curr_stmt stmt) 'funcall)
+       (begin
+         (define closure (find_var (cadr stmt) state))
+         (if (not (null? (caddr stmt)))
+             (M_state (cadr closure) (bind_params (car closure) (caddr stmt) state throw ((caddr closure) state)))
+             (M_state (cadr closure) (bind_params '() '() state throw ((caddr closure) state)))))]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
+
+;binds function params
+(define bind_params
+  (lambda (formal_params actual_params state throw func_state)
+    (begin
+      (define func_state_0 (create_inner_state func_state))
+      (if (null? formal_params)
+          func_state_0
+          (bind_params (cdr formal_params) (cdr actual_params) (add_var (car formal_params) (car actual_params) func_state_0) throw func_state_0)))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
@@ -292,7 +314,7 @@
                             (lambda (break) (error 'breakerr "Invalid break location"))
                             (lambda (cont) (error 'conterror "Invalid continue location"))
                             (lambda (ex val) (error 'throwerror "Uncaught exception thrown"))))
-                      (M_state
+                      (M_statementlist
                             (cadr (find_var 'main globalstate)) ;body of main
                              globalstate
                              ret
