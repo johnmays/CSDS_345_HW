@@ -1,5 +1,3 @@
-
-
 function bmethod(x){
   var a = x + 1;
   a = cmethod(a);
@@ -11,8 +9,6 @@ function cmethod(x){
 }
 
 function main(){
-  var z = bmethod(0);
+  var z = 100 * bmethod(0);
   return z;
-
 }
-	

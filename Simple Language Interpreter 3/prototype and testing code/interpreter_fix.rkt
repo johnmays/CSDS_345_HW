@@ -50,7 +50,7 @@
 ; Closure abstractions
 (define closure_params car)
 (define closure_body cadr)
-(define closure_functionstate caddr)
+(define closure_getstate caddr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -62,7 +62,7 @@
 ; Checks if an atom is a potential variable name.
 (define var?
   (lambda (x)
-    (not (or (pair? x) (null? x)))))
+    (not (or (pair? x) (null? x) (eq? 'true x) (eq? 'false x)))))
 
 ; Retrieves the value of a given variable.
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
@@ -163,9 +163,9 @@
   (lambda (expr state return)
     (cond
       [(number? expr) (return expr)]
+      [(var? expr) (return (get_var expr state))]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
-      [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
        (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))))))]                                     
@@ -196,6 +196,19 @@
       [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))))))]
       [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))))))]
       [else (error 'badop "Bad operator: ~a" expr)])))
+
+(define M_exprfunc
+  (lambda (stmt state return next throw)
+    (let ([closure (get_func_closure (func_name stmt) state)])
+      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (M_statementlist (closure_body closure)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)))
+                           (lambda (ret) ret)
+                           (lambda (nx) (error 'nexterror "Missing return value"))
+                           (lambda (break) (error 'breakerror "Break outside of loop"))
+                           (lambda (cont) (error 'conterror "Continue outside of loop"))
+                           (lambda (ex val) (throw ex val)))))))
 
 
 ; ==================================================================================================
@@ -307,12 +320,12 @@
 ; Handles the continuations and the state modifications made during a function call.
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
-  (lambda (stmt state return next break continue throw)
+  (lambda (stmt state return next throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
           (M_statementlist (closure_body closure)
-                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_functionstate closure) state)))
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)))
                            (lambda (ret) (next state))
                            (lambda (nx) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -344,7 +357,7 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state return next throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles lists of statements, which are executed sequentially

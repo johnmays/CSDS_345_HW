@@ -62,7 +62,7 @@
 ; Checks if an atom is a potential variable name.
 (define var?
   (lambda (x)
-    (not (or (pair? x) (null? x)))))
+    (not (or (pair? x) (null? x) (eq? 'true x) (eq? 'false x)))))
 
 ; Retrieves the value of a given variable.
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
@@ -163,6 +163,8 @@
   (lambda (expr state return next throw)
     (cond
       [(number? expr) (return expr)]
+      [(eq? expr 'true) (return #t)]
+      [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) next throw)) next throw)]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
@@ -171,16 +173,6 @@
       [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) next throw)) next throw)]
       [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) next throw)) next throw)]
       [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) next throw)) next throw))]
-      [(eq? (pre_op expr) 'funcall) (begin
-                                      (define closure (get_func_closure (func_name expr) state))
-                                      (define fstate (bind_params (closure_params closure) (actual_params expr) state throw (closure_getstate closure) next))
-                                      (M_statementlist (closure_body closure) fstate
-                                               (lambda (v) v)                                                                     ; return continuation
-                                               (lambda (s) (error 'nonext "Expressions can't have a next"))                       ; next continuation
-                                               (lambda (s) (error 'badbreak "Cannot break out of a function call/expression"))    ; break continuation
-                                               (lambda (s) (error 'badcontinue "Cannot continue from a function call/expression")); continue continuation
-                                               throw                                                                              ; throw continuation
-                                               ))]
       [else (M_bool expr state next throw)])))
 
 ; Evaluates the result of a prefix boolean expression.
@@ -188,18 +180,13 @@
   (lambda (expr state next throw)
     (M_bool_helper expr state (lambda (v) v) next throw)))
 
-; STILL NEED TO REFACTOR THESE ^ V -----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
-;-----AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH----------AHHHH-----
 (define M_bool_helper
   (lambda (expr state return next throw)
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
+      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state next throw))]
       [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) next throw)]
       [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2)))  next throw)) next throw)]
       [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) next throw)) next throw)]
@@ -210,6 +197,20 @@
       [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) next throw)) next throw)]
       [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2)) next throw))) next throw)]
       [else (error 'badop "Bad operator: ~a" expr)])))
+
+; Evaluates the result of a function call as an expression.
+(define M_funexprcall
+  (lambda (stmt state next throw)
+    (let ([closure (get_func_closure (func_name stmt) state)])
+      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+          (error 'paramerror "Arity mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (M_statementlist (closure_body closure)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)) throw)
+                           (lambda (ret) ret)
+                           (lambda (nx) (error 'nexterror "Missing return value"))
+                           (lambda (break) (error 'breakerror "Break outside of loop"))
+                           (lambda (cont) (error 'conterror "Continue outside of loop"))
+                           (lambda (ex val) (throw ex val)))))))
 
 
 ; ==================================================================================================
@@ -334,30 +335,34 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state next throw) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
-(define M_funcall
-  (lambda (stmt state return next break continue throw)
+; We handle parameter binding via a helper function.
+(define M_funstmtcall
+  (lambda (stmt state next throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (call/cc (lambda (ret) (
-                              (M_statementlist (closure_body closure)
-                                               (bind_params (closure_params closure) (actual_params stmt) state throw (closure_getstate closure) next)
-                                               ret
-                                               (lambda (st) (next st))
-                                               (lambda (break) (error 'breakerror "Break outside of loop"))
-                                               (lambda (cont) (error 'conterror "Continue outside of loop"))
-                                               (lambda (ex val) (throw ex val)))))))))
+      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (M_statementlist (closure_body closure)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)) throw)
+                           (lambda (ret) (next state))
+                           (lambda (nx) (next state))
+                           (lambda (break) (error 'breakerror "Break outside of loop"))
+                           (lambda (cont) (error 'conterror "Continue outside of loop"))
+                           (lambda (ex val) (throw ex val)))))))
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 (define bind_params
-  (lambda (formal_params actual_params state throw func_state next)
-    (begin
-      (define func_state1 (create_inner_state func_state))
-      (if (or (null? formal_params) (null? actual_params))
-          func_state1
-          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params) state next throw) state) next)))))
+  (lambda (formal_params actual_params state func_state throw)
+    (if (null? formal_params)
+        func_state
+        (bind_params (cdr formal_params)
+                     (cdr actual_params)
+                     state
+                     (add_var (car formal_params) (M_value (car actual_params) state 'abhay_is_smart throw) func_state)
+                     throw))))
 
 ; Handles lists of statements, which are executed sequentially
 (define M_statementlist
