@@ -46,10 +46,11 @@
 (define func_params caddr)
 (define func_body cadddr)
 (define actual_params cddr)
+
 ; Closure abstractions
 (define closure_params car)
 (define closure_body cadr)
-(define closure_getstate caddr)
+(define closure_functionstate caddr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -162,6 +163,8 @@
   (lambda (expr state return)
     (cond
       [(number? expr) (return expr)]
+      [(eq? expr 'true) (return #t)]
+      [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))))))]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
@@ -302,25 +305,28 @@
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
 ; Handles the continuations and the state modifications made during a function call.
-(define M_funcall
+; We handle parameter binding via a helper function.
+(define M_funstmtcall
   (lambda (stmt state return next break continue throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (call/cc (lambda (ret) (
-                              (M_statementlist (closure_body closure)
-                                               (bind_params (closure_params closure) (actual_params stmt) state throw ((closure_getstate closure) state))
-                                               ret
-                                               (lambda (st) (next st))
-                                               (lambda (break) (error 'breakerror "Break outside of loop"))
-                                               (lambda (cont) (error 'conterror "Continue outside of loop"))
-                                               (lambda (ex val) (throw ex val)))))))))
+      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (M_statementlist (closure_body closure)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_functionstate closure) state)))
+                           (lambda (ret) (next state))
+                           (lambda (nx) (next state))
+                           (lambda (break) (error 'breakerror "Break outside of loop"))
+                           (lambda (cont) (error 'conterror "Continue outside of loop"))
+                           (lambda (ex val) (throw ex val)))))))
 
 (define bind_params
-  (lambda (formal_params actual_params state throw func_state)
-    (begin
-      (define func_state1 (create_inner_state func_state))
-      (if (or (null? formal_params) (null? actual_params))
-          func_state1
-          (bind_params (cdr formal_params) (cdr actual_params) state throw (add_var (car formal_params) (M_value (car actual_params) state) state))))))
+  (lambda (formal_params actual_params state func_state)
+    (if (null? formal_params)
+        func_state
+        (bind_params (cdr formal_params)
+                     (cdr actual_params)
+                     state
+                     (add_var (car formal_params) (M_value (car actual_params) state) func_state)))))
 
 ; Returns the resulting state after a single statement.
 (define M_state
@@ -338,7 +344,7 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funcall stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles lists of statements, which are executed sequentially

@@ -1,11 +1,13 @@
-var a = 0;
+var a = 5;
 
-function b(c) {
-  a = c;
-  return a;
+function b(x) {
+  a = 102;
+  x = !x;
+  return x;
 }
 
 function main() {
-  b(b(5));
-  return a;
+  var d = true;
+  b(d);
+  return !d;
 }
