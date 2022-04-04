@@ -1,12 +1,18 @@
-var a = 10;
-var b = 20;
 
-function amethod() {
-  return 6;
+
+function bmethod(x){
+  var a = x + 1;
+  a = cmethod(a);
+  return a;	
 }
 
-function main () {
-  var c = 9;
-  c = amethod();
-  return c;
+function cmethod(x){
+ return x + 10;
 }
+
+function main(){
+  var z = bmethod(0);
+  return z;
+
+}
+	
