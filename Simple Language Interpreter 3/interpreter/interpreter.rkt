@@ -59,10 +59,10 @@
 ;                                         HELPER FUNCTIONS
 ; ==================================================================================================
 
-; Checks if an atom is a potential variable name.
-(define var?
+; Checks if the current element is an atom, which can denote a function or variable name.
+(define atom?
   (lambda (x)
-    (not (or (pair? x) (null? x) (eq? 'true x) (eq? 'false x)))))
+    (not (or (pair? x) (null? x)))))
 
 ; Retrieves the value of a given variable.
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
@@ -70,7 +70,8 @@
   (lambda (var state)
     (cond
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(null? (state_vars state)) (get_var var (pop_inner_state state))]
+      [(atom? (car state)) (get_var var (cdr state))]
+      [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(and (eq? var (car (state_vars state))) (void? (unbox (car (state_vals state))))) (error 'varerror "Variable not assigned: ~a" var)]
       [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (unbox (car (state_vals state)))]
       [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
@@ -80,13 +81,14 @@
 (define add_var
   (lambda (var val state)
     (cond
-      ;[(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
+      [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
       [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
-      [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_inner_state state))])))
+      [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_outer_layer state))])))
 
 (define declared?
   (lambda (var state)
     (cond
+      [(atom? (car state)) (eq? (car state) var)]
       [(null? (state_vars state)) (if (null? (next_layer state))
                                       #f
                                       (declared? var (next_layer state)))]
@@ -103,17 +105,23 @@
   (lambda (var value state end)
     (cond
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(null? (state_vars state)) (assign_var_helper! var value (pop_inner_state state) end)]
+      [(atom? (car state)) (assign_var_helper! var value (cdr state) end)] 
+      [(null? (state_vars state)) (assign_var_helper! var value (pop_outer_layer state) end)]
       [(eq? var (car (state_vars state))) (begin (set-box! (car (state_vals state)) value) end)]
       [else (assign_var_helper! var value (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (cddr state))) end)])))
 
-; Creates a new layer for the state.
-(define create_inner_state
+; Creates a new block layer for the state.
+(define create_block_layer
   (lambda (state)
     (append empty_state state)))
 
-; Pops the newest layer from the state.
-(define pop_inner_state
+; Creates a new function layer for the state. This will also append the function name which may be looked up later.
+(define create_function_layer
+  (lambda (name state)
+    (append empty_state (list name) state)))
+
+; Pops the newest (outermost) layer from the state.
+(define pop_outer_layer
   (lambda (state)
     (if (null? (next_layer state))
         (error 'stateerror "Invalid state.")
@@ -125,7 +133,7 @@
     (cond
       [(declared? name state) (error 'funcerror "Function name already declared: ~a" name)]
       [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state)))]
-      [else (append (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state))) (pop_inner_state state))])))
+      [else (append (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state))) (pop_outer_layer state))])))
 
 ; Creates a tuple containing the following:
 ;   - formal parameters
@@ -134,11 +142,11 @@
 (define make_closure
   (lambda (param_list body state)
     (list param_list body
-          (lambda (st) (find_state st state)))))
+          (lambda (st) (find_state state st)))))
 
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_state
-  (lambda (given_state orig_state)
+  (lambda (orig_state given_state)
     (take-right given_state (length orig_state))))
 
 ; A function to retrieve a given function's closure.
@@ -146,7 +154,8 @@
   (lambda (name state)
     (cond
       [(equal? state empty_state) (error 'funcerror "Function not found: ~a" name)]
-      [(null? (state_vars state)) (get_func_closure name (pop_inner_state state))]
+      [(atom? (car state)) (get_func_closure name (cdr state))]
+      [(null? (state_vars state)) (get_func_closure name (pop_outer_layer state))]
       [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
       [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
     
@@ -165,15 +174,14 @@
       [(number? expr) (return expr)]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
-      [(var? expr) (return (get_var expr state))]
+      [(atom? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) throw)) throw)]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
                               (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw)) throw)]                                     
       [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) throw)]
       [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) throw)) throw)]
       [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) throw)) throw))]
-      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw))]
+      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2))) throw)) throw)]
       [else (M_bool expr state return throw)])))
 
 ; Evaluates the result of a prefix boolean expression.
@@ -186,7 +194,8 @@
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
-      [(var? expr) (return (get_var expr state))]
+      [(atom? expr) (return (get_var expr state))]
+      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw))]
       [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) throw)]
       [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))) throw)) throw)]
       [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) throw)) throw)]
@@ -195,7 +204,7 @@
       [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) throw)) throw)]
       [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) throw)) throw)]
       [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2)) throw))) throw)]
+      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))) throw)) throw)]
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 ; Evaluates the result of a function call as an expression.
@@ -203,9 +212,9 @@
   (lambda (stmt state throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
-          (error 'paramerror "Arity mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
           (M_statementlist (closure_body closure)
-                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)) throw)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -219,12 +228,12 @@
 
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
-  (lambda (stmt state return next throw)
-    (if (number? (M_value (ret_val stmt) state throw))
-        (return (M_value (ret_val stmt) state throw))
-        (if (M_bool (ret_val stmt) state (lambda (ret) ret) throw)
-            (return 'true)
-            (return 'false)))))
+  (lambda (stmt state return throw)
+    (let ([val (M_value (ret_val stmt) state throw)])
+      (cond
+        [(number? val) (return val)]
+        [val (return 'true)]
+        [else (return 'false)]))))
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -268,12 +277,12 @@
 (define M_block
   (lambda (stmts state return next break continue throw)
     (M_statementlist (next_stmt stmts)
-                     (create_inner_state state)
+                     (create_block_layer state)
                      return
-                     (lambda (st) (next (pop_inner_state st)))
-                     (lambda (st) (break (pop_inner_state st)))
-                     (lambda (st) (continue (pop_inner_state st)))
-                     (lambda (ex st) (throw ex (pop_inner_state st))))))
+                     (lambda (st) (next (pop_outer_layer st)))
+                     (lambda (st) (break (pop_outer_layer st)))
+                     (lambda (st) (continue (pop_outer_layer st)))
+                     (lambda (ex st) (throw ex (pop_outer_layer st))))))
 
 ; Evaluates a try/catch/finally statement.
 ; We also have helper methods to reuse M_block for the try and finally blocks (by manually inserting the "begin" keyword at those locations).
@@ -307,12 +316,12 @@
       [(not (eq? (curr_stmt stmt) 'catch)) (error 'badstmt "Incorrect catch statement.")]
       [else (lambda (ex st) (M_statementlist
                              (stmt1 stmt)
-                             (add_var (catch_var stmt) ex (create_inner_state state))
+                             (add_var (catch_var stmt) ex (create_block_layer state))
                              return
-                             (lambda (st1) (M_block finally (pop_inner_state st1) return next break continue throw))
-                             (lambda (st1) (break (pop_inner_state st1)))
-                             (lambda (st1) (continue (pop_inner_state st1)))
-                             (lambda (ex1 st1) (throw ex1 (pop_inner_state st1)))))])))
+                             (lambda (st1) (M_block finally (pop_outer_layer st1) return next break continue throw))
+                             (lambda (st1) (break (pop_outer_layer st1)))
+                             (lambda (st1) (continue (pop_outer_layer st1)))
+                             (lambda (ex1 st1) (throw ex1 (pop_outer_layer st1)))))])))
 
 ; Creates a binding for function definitions.
 (define M_fundef
@@ -323,7 +332,7 @@
 (define M_state
   (lambda (stmt state return next break continue throw)
     (cond
-      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return next throw)]
+      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return throw)]
       [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next throw)]
       [(eq? (curr_stmt stmt) '=) (M_assign stmt state next throw)]
       [(eq? (curr_stmt stmt) 'if) (M_if stmt state return next break continue throw)]
@@ -333,9 +342,9 @@
       [(eq? (curr_stmt stmt) 'continue) (continue state)]
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw) state)]
-      [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state continue throw)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
@@ -344,11 +353,11 @@
   (lambda (stmt state next throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
           (M_statementlist (closure_body closure)
-                           (bind_params (closure_params closure) (actual_params stmt) state (create_inner_state ((closure_getstate closure) state)) throw)
+                           (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
                            (lambda (ret) (next state))
-                           (lambda (nx) (next state))
+                           next
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex val) (throw ex val)))))))
@@ -397,7 +406,7 @@
   (lambda (global_state)
     (call/cc (lambda (ret) (M_statementlist
                             (closure_body (get_func_closure 'main global_state))
-                            (create_inner_state global_state)
+                            (create_function_layer 'main global_state)
                             ret
                             (lambda (next) next)
                             (lambda (break) (error 'breakerror "Invalid break location."))
@@ -408,11 +417,11 @@
 ; '((g) (#&#t) (f e d) (#&#f #&#<void> #&3) (c b a) (#&2 #&1 #&#t))
 (define test_state
   (add_var 'g #t
-           (create_inner_state
+           (create_block_layer
             (add_var 'f #f
                      (add_var 'e (void)
                               (add_var 'd 3
-                                       (create_inner_state
+                                       (create_block_layer
                                         (add_var 'c 2
                                                  (add_var 'b 1
                                                           (add_var 'a #t empty_state))))))))))

@@ -1,14 +1,13 @@
-function bmethod(x){
-  var a = x + 1;
-  a = cmethod(a);
-  return a;	
+var a = 7;
+
+function fib(x) {
+  var a = 4;
+  if (a < 5) {
+    a = x;
+  }
+  return a;
 }
 
-function cmethod(x){
- return x + 10;
-}
-
-function main(){
-  var z = 5 * bmethod(0);
-  return z;
+function main() {
+  return a + fib(10);
 }
