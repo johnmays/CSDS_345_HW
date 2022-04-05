@@ -156,51 +156,51 @@
 
 ; Evaluates the value of a general expression.
 (define M_value
-  (lambda (expr state next throw)
-    (M_value_helper expr state (lambda (v) v) next throw)))
+  (lambda (expr state throw)
+    (M_value_helper expr state (lambda (v) v) throw)))
 
 (define M_value_helper
-  (lambda (expr state return next throw)
+  (lambda (expr state return throw)
     (cond
       [(number? expr) (return expr)]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) next throw)) next throw)]
+      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) throw)) throw)]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
-                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) next throw)) next throw)]                                     
-      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) next throw)]
-      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) next throw)) next throw))]
-      [else (M_bool expr state next throw)])))
+                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw)) throw)]                                     
+      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) throw)]
+      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2)) throw)) throw))]
+      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw))]
+      [else (M_bool expr state return throw)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
-  (lambda (expr state next throw)
-    (M_bool_helper expr state (lambda (v) v) next throw)))
+  (lambda (expr state return throw)
+    (M_bool_helper expr state return throw)))
 
 (define M_bool_helper
-  (lambda (expr state return next throw)
+  (lambda (expr state return throw)
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(var? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state next throw))]
-      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) next throw)]
-      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2)))  next throw)) next throw)]
-      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))) next throw)) next throw)]
-      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) next throw)) next throw)]
-      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2)) next throw))) next throw)]
+      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) throw)]
+      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))) throw)) throw)]
+      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2)) throw))) throw)]
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 ; Evaluates the result of a function call as an expression.
 (define M_funexprcall
-  (lambda (stmt state next throw)
+  (lambda (stmt state throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
           (error 'paramerror "Arity mismatch (expected ~a arguments, got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
@@ -220,9 +220,9 @@
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
   (lambda (stmt state return next throw)
-    (if (number? (M_value (ret_val stmt) state next throw))
-        (return (M_value (ret_val stmt) state next throw))
-        (if (M_bool (ret_val stmt) state)
+    (if (number? (M_value (ret_val stmt) state throw))
+        (return (M_value (ret_val stmt) state throw))
+        (if (M_bool (ret_val stmt) state (lambda (ret) ret) throw)
             (return 'true)
             (return 'false)))))
 
@@ -231,18 +231,18 @@
 (define M_declaration
   (lambda (stmt state next throw)
     (if (not (null? (cddr stmt)))
-        (next (add_var (var_name stmt) (M_value (var_value stmt) state next throw) state))
+        (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))
         (next (add_var (var_name stmt) (void) state)))))
 
 ; Returns the resulting state after a variable is assigned.
 (define M_assign
   (lambda (stmt state next throw)
-    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state next throw) state))))
+    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state throw) state))))
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
   (lambda (stmt state return next break continue throw)
-    (if (M_bool (condition stmt) state next throw)
+    (if (M_bool (condition stmt) state (lambda (ret) ret) throw)
         (M_state (stmt1 stmt) state return next break continue throw)
         (if (null? (elif stmt))
             (next state)
@@ -256,7 +256,7 @@
 
 (define loop
   (lambda (condition body state return next throw)
-    (if (M_bool condition state next throw )
+    (if (M_bool condition state (lambda (ret) ret) throw)
         (M_state body state return
                  (lambda (st) (loop condition body st return next throw))
                  (lambda (st) (next st))                                  ; <-- Break continuation
@@ -332,7 +332,7 @@
       [(eq? (curr_stmt stmt) 'break) (break state)]
       [(eq? (curr_stmt stmt) 'continue) (continue state)]
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state next throw) state)]
+      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_inner_state state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state continue throw)]
@@ -361,7 +361,7 @@
         (bind_params (cdr formal_params)
                      (cdr actual_params)
                      state
-                     (add_var (car formal_params) (M_value (car actual_params) state 'abhay_is_smart throw) func_state)
+                     (add_var (car formal_params) (M_value (car actual_params) state throw) func_state)
                      throw))))
 
 ; Handles lists of statements, which are executed sequentially

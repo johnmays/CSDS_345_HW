@@ -62,7 +62,7 @@
 ; Checks if an atom is a potential variable name.
 (define var?
   (lambda (x)
-    (not (or (pair? x) (null? x) (eq? 'true x) (eq? 'false x)))))
+    (not (or (pair? x) (null? x)))))
 
 ; Retrieves the value of a given variable.
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).

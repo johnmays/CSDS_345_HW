@@ -9,6 +9,6 @@ function cmethod(x){
 }
 
 function main(){
-  var z = 100 * bmethod(0);
+  var z = 5 * bmethod(0);
   return z;
 }
