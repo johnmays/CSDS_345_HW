@@ -52,6 +52,12 @@
 (define closure_body cadr)
 (define closure_getstate caddr)
 
+; Parameter abstractions
+(define curr_param car)
+(define curr_ptr cadr)
+(define next_param cdr)
+(define next_ptr cddr)
+
 ; Empty state
 (define empty_state '(()()))
 
@@ -64,7 +70,7 @@
   (lambda (x)
     (not (or (pair? x) (null? x)))))
 
-; Retrieves the value of a given variable.
+; Retrieves the value (or the box) of a given variable. The helper method get_ptr is used in cases with pass-by-reference.
 ; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
 (define get_var
   (lambda (var state)
@@ -72,11 +78,23 @@
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
       [(atom? (car state)) (get_var var (cdr state))]
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
-      [(and (eq? var (car (state_vars state))) (void? (unbox (car (state_vals state))))) (error 'varerror "Variable not assigned: ~a" var)]
-      [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (unbox (car (state_vals state)))]
+      [(eq? var (car (state_vars state)))
+       (cond
+         {(not (box? (car (state_vals state)))) (get_var var (cdr state))}
+         {(void? (unbox (car (state_vals state)))) (error 'varerror "Variable not assigned: ~a" var)}
+         {else (unbox (car (state_vals state)))})]
       [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
-; Adds a variable to the state and returns the state.
+(define get_ptr
+  (lambda (var state)
+    (cond
+      [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
+      [(atom? (car state)) (get_ptr var (cdr state))]
+      [(null? (state_vars state)) (get_ptr var (pop_outer_layer state))]
+      [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (car (state_vals state))]
+      [else (get_ptr var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+
+; Adds a variable (or reference) to the state and returns the state. The helper method add_ptr is used whenever a reference is explicitly specified.
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
@@ -84,6 +102,13 @@
       [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
       [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
       [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_outer_layer state))])))
+
+(define add_ptr
+  (lambda (var ptr state)
+    (cond
+      [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
+      [(null? (next_layer state)) (list (cons var (state_vars state)) (cons ptr (state_vals state)))]
+      [else (append (list (cons var (state_vars state)) (cons ptr (state_vals state))) (pop_outer_layer state))])))
 
 (define declared?
   (lambda (var state)
@@ -158,6 +183,14 @@
       [(null? (state_vars state)) (get_func_closure name (pop_outer_layer state))]
       [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
       [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+
+; A function to count the number of parameters.
+(define num_params
+  (lambda (param_list)
+    (cond
+      [(null? param_list) 0]
+      [(eq? (car param_list) '&) (num_params (cdr param_list))]
+      [else (+ 1 (num_params (cdr param_list)))])))
     
 ; ==================================================================================================
 ;                                       EVALUATION FUNCTIONS
@@ -352,8 +385,8 @@
 (define M_funstmtcall
   (lambda (stmt state next throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (length (closure_params closure)) (length (actual_params stmt)))
+      (if (not (eq? (num_params (closure_params closure)) (num_params (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (closure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (closure_body closure)
                            (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
                            (lambda (ret) (next state))
@@ -363,23 +396,32 @@
                            (lambda (ex st) (throw ex state)))))))
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
+; Formal parameters marked with & are bound to the pointer of the actual parameter
 (define bind_params
   (lambda (formal_params actual_params state func_state throw)
-    (if (null? formal_params)
-        func_state
-        (bind_params (cdr formal_params)
-                     (cdr actual_params)
-                     state
-                     (add_var (car formal_params) (M_value (car actual_params) state throw) func_state)
-                     throw))))
+    (cond
+      [(null? formal_params) func_state]
+      [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
+                                               (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
+                                               (bind_params (next_ptr formal_params)
+                                                            (next_param actual_params)
+                                                            state
+                                                            (add_ptr (curr_ptr formal_params) (get_ptr (curr_param actual_params) state) func_state)
+                                                            throw))]
+      [else (bind_params (next_param formal_params)
+                         (next_param actual_params)
+                         state
+                         (add_var (curr_param formal_params) (M_value (curr_param actual_params) state throw) func_state)
+                         throw)])))
 
 ; Handles lists of statements, which are executed sequentially
+; This is where we make our 'next' continuation, which refers to the next string of code to be executed
 (define M_statementlist
   (lambda (stmts state return next break continue throw)
     (if (null? stmts)
         (next state)
         (M_state (curr_stmt stmts) state return
-                 (lambda (nstate) (M_statementlist (next_stmt stmts) nstate return next break continue throw)) break continue throw)))) ; <-- This is where we make our 'next' continuation.
+                 (lambda (nstate) (M_statementlist (next_stmt stmts) nstate return next break continue throw)) break continue throw))))
 
 ; ==================================================================================================
 ;                                                MAIN
