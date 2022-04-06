@@ -123,8 +123,8 @@
 ; Pops the newest (outermost) layer from the state.
 (define pop_outer_layer
   (lambda (state)
-    (if (null? (next_layer state))
-        (error 'stateerror "Invalid state.")
+    (if (or (null? (next_layer state)) (atom? (car state)))
+        (error 'stateerror "Invalid state")
         (next_layer state))))
 
 ; Creates the function binding along with its closure. The helper functions for the closure are below.
@@ -219,7 +219,7 @@
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
-                           (lambda (ex val) (throw ex val)))))))
+                           (lambda (ex st) (throw ex state)))))))
 
 
 ; ==================================================================================================
@@ -360,7 +360,7 @@
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
-                           (lambda (ex val) (throw ex val)))))))
+                           (lambda (ex st) (throw ex state)))))))
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 (define bind_params
