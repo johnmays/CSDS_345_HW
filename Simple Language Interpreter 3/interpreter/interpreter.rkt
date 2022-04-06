@@ -357,7 +357,7 @@
           (M_statementlist (closure_body closure)
                            (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
                            (lambda (ret) (next state))
-                           next
+                           (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex val) (throw ex val)))))))
