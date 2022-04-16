@@ -1,6 +1,6 @@
 ; Group 5 - Josh Tang, John Mays, Abhay Pant
 #lang racket
-(require "functionParser.rkt")
+(require "classParser.rkt")
 
 ; ==================================================================================================
 ;                                           ABSTRACTIONS
@@ -58,8 +58,12 @@
 (define next_param cdr)
 (define next_ptr cddr)
 
+;Class abstractions
+(define class_body cadddr)
+
 ; Empty state
 (define empty_state '(()()))
+
 
 ; ==================================================================================================
 ;                                         HELPER FUNCTIONS
@@ -157,17 +161,39 @@
   (lambda (name param_list body state)
     (cond
       [(declared? name state) (error 'funcerror "Function name already declared: ~a" name)]
-      [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state)))]
-      [else (append (list (cons name (state_vars state)) (cons (make_closure param_list body state) (state_vals state))) (pop_outer_layer state))])))
+      [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state)))]
+      [else (append (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state))) (pop_outer_layer state))])))
 
 ; Creates a tuple containing the following:
 ;   - formal parameters
 ;   - function body
 ;   - a function that takes in the current state and returns the portion of state that's visible
-(define make_closure
+;   - a function that returns the class the method is defined in
+(define make_function_closure
   (lambda (param_list body state)
     (list param_list body
-          (lambda (st) (find_state state st)))))
+          (lambda (st) (find_state state st))
+          (lambda (v) v))))
+
+;Creates a tuple containing the following:
+;   - Superclass
+;   - Methods
+;   - Class Fields
+;   - Instance field names + initial values
+(define make_class_closure
+  (lambda (superclass class_body c_fields i_fields classname)
+    (list superclass (filter_methods class_body classname) methods c_fields i_fields)))
+
+(define filter_methods
+  (lambda (stmts classname)
+    (
+
+;Creates a tuple containing the following:
+;    - Class (Runtime type)
+;    - Instance field values
+(define make_instance_closure
+  (lambda (class i_fields)
+    (list class i_fields)))
 
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_state
@@ -378,6 +404,7 @@
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
+      [(eq? (curr_stmt stmt) 'class) (make_class_closure (M_statementlist (class_body stmt) state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
