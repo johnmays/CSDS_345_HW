@@ -60,6 +60,7 @@
 
 ;Class abstractions
 (define class_body cadddr)
+(define superclass caddr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -181,12 +182,23 @@
 ;   - Class Fields
 ;   - Instance field names + initial values
 (define make_class_closure
-  (lambda (superclass class_body c_fields i_fields classname)
-    (list superclass (filter_methods class_body classname) methods c_fields i_fields)))
+  (lambda (superclass class_body classname)
+    (list superclass (filter_methods (state_vars class_body) (state_vals class_body) classname) (filter_class_fields (state_vars class_body) (state_vals class_body)) (filter_instance_fields (state_vars class_body) (state_vals class_body)))
 
 (define filter_methods
-  (lambda (stmts classname)
-    (
+  (lambda (vars vals classname)
+    (cond
+      [(or (null? vars) (null? vals)) (list vars vals)]
+      [(list? (car vals)) (add_var (car vars) (append (car vals) (cons classname '())) (filter_methods (cdr vars) (cdr vals) classname))]
+      [else (filter_methods (cdr vars) (cdr vals) (classname))])))
+
+(define filter_class_fields
+  (lambda (vars vals)
+    (cond
+      [or (null? vars) (null? vals) empty_state]
+      [(
+      
+      
 
 ;Creates a tuple containing the following:
 ;    - Class (Runtime type)
@@ -404,7 +416,7 @@
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
-      [(eq? (curr_stmt stmt) 'class) (make_class_closure (M_statementlist (class_body stmt) state return next break continue throw)]
+     [(eq? (curr_stmt stmt) 'class) (make_class_closure (superclass stmt) (M_statementlist (class_body stmt)) (class_name stmt))]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
