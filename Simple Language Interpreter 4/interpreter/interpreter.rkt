@@ -284,7 +284,7 @@
 (define M_funexprcall
   (lambda (stmt state throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+      (if (not (eq? (num_params (closure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (closure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (closure_body closure)
                            (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
@@ -302,11 +302,7 @@
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
   (lambda (stmt state return throw)
-    (let ([val (M_value (ret_val stmt) state throw)])
-      (cond
-        [(number? val) (return val)]
-        [val (return 'true)]
-        [else (return 'false)]))))
+    (return (M_value (ret_val stmt) state throw))))
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
 ; Otherwise, the variable is given the value #<void>.
@@ -490,7 +486,10 @@
     (call/cc (lambda (ret) (M_statementlist
                             (closure_body (get_func_closure 'main global_state))
                             (create_function_layer 'main global_state)
-                            ret
+                            (lambda (ret) (cond
+                                            [(number? ret) ret]
+                                            [ret 'true]
+                                            [else 'false]))
                             (lambda (next) next)
                             (lambda (break) (error 'breakerror "Invalid break location."))
                             (lambda (cont) (error 'conterror "Invalid continue location."))
