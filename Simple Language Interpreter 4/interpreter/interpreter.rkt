@@ -181,22 +181,24 @@
 ;   - Methods
 ;   - Class Fields
 ;   - Instance field names + initial values
+
 (define make_class_closure
   (lambda (superclass class_body classname)
-    (list superclass (filter_methods (state_vars class_body) (state_vals class_body) classname) (filter_class_fields (state_vars class_body) (state_vals class_body)) (filter_instance_fields (state_vars class_body) (state_vals class_body)))
+    (list superclass (filter_methods (state_vars class_body) (state_vals class_body) classname) (filter_instance_fields (state_vars class_body) (state_vals class_body)))))
 
 (define filter_methods
   (lambda (vars vals classname)
     (cond
       [(or (null? vars) (null? vals)) (list vars vals)]
-      [(list? (car vals)) (add_var (car vars) (append (car vals) (cons classname '())) (filter_methods (cdr vars) (cdr vals) classname))]
-      [else (filter_methods (cdr vars) (cdr vals) (classname))])))
+      [(list? (car vals)) (add_ptr (car vars) (append (car vals) (cons classname '())) (filter_methods (cdr vars) (cdr vals) classname))]
+      [else (filter_methods (cdr vars) (cdr vals) classname)])))
 
-(define filter_class_fields
+(define filter_instance_fields
   (lambda (vars vals)
     (cond
-      [or (null? vars) (null? vals) empty_state]
-      [(
+      [(or (null? vars) (null? vals)) empty_state]
+      [(list? (car vals)) (filter_instance_fields (cdr vars) (cdr vals))]
+      [else (add_ptr (car vars) (car vals) (filter_instance_fields (cdr vars) (cdr vals)))])))
       
       
 
@@ -416,7 +418,7 @@
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
-     [(eq? (curr_stmt stmt) 'class) (make_class_closure (superclass stmt) (M_statementlist (class_body stmt)) (class_name stmt))]
+     ;[(eq? (curr_stmt stmt) 'class) (make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt)))]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
