@@ -1,7 +1,0 @@
-function a() {
-  return false;
-}
-
-function main() {
-  return a();
-}
