@@ -244,7 +244,7 @@
 (define M_funexprcall
   (lambda (stmt state throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (if (not (eq? (length (closure_params closure)) (length (actual_params stmt))))
+      (if (not (eq? (num_params (closure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (closure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (closure_body closure)
                            (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
