@@ -1,0 +1,12 @@
+var a = true;
+
+function b(x) {
+  x = !x;
+  a = !a;
+}
+
+function main() {
+  var d = true;
+  b(d);
+  return a;
+}
