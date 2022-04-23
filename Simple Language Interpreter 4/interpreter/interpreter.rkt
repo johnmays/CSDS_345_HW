@@ -61,6 +61,7 @@
 ;Class abstractions
 (define class_body cadddr)
 (define superclass caddr)
+(define class_name cadr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -165,6 +166,14 @@
       [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state)))]
       [else (append (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state))) (pop_outer_layer state))])))
 
+;Creates class binding along with its closure
+(define add_class
+  (lambda (stmt state)
+    (cond
+      [(declared? (class_name (car stmt)) state) (error 'classerror "Class name already declared: ~a" (class_name (car stmt)))]
+      [(null? (next_layer state)) ](list (cons (class_name (car stmt)) (state_vars state)) (cons (make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt))) (state_vals state)))
+      [else (append (list (cons (class_name (car stmt))) (cons (make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt))) (state_vals state))) (pop_outer_layer state))])))
+      ;(make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt)))
 ; Creates a tuple containing the following:
 ;   - formal parameters
 ;   - function body
@@ -397,6 +406,11 @@
   (lambda (stmt state next)
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
+;Creates a binding for class definitiions.
+(define M_classdef
+  (lambda (stmt state next)
+    (next (add_class stmt state))))
+
 ; Returns the resulting state after a single statement.
 (define M_state
   (lambda (stmt state return next break continue throw)
@@ -414,7 +428,7 @@
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
-     ;[(eq? (curr_stmt stmt) 'class) (make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt)))]
+      [(eq? (curr_stmt stmt) 'class) (M_classdef stmt state next)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
