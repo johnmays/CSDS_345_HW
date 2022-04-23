@@ -171,7 +171,7 @@
   (lambda (stmt state return next break continue throw)
     (cond
       [(declared? (class_name stmt) state) (error 'classerror "Class name already declared: ~a" (class_name stmt))]
-      [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) state return next break continue throw ) (class_name stmt)) (state_vals state)))]
+      [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) state return (lambda (s) s) break continue throw ) (class_name stmt)) (state_vals state)))]
       [else (append (list (cons (class_name stmt)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) state return next break continue throw) (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
       ;(make_class_closure (superclass stmt) (M_statementlist (class_body stmt)) (class_name stmt))
 ; Creates a tuple containing the following:
@@ -409,7 +409,7 @@
 ;Creates a binding for class definitiions.
 (define M_classdef
   (lambda (stmt state return next break continue throw)
-    (next (add_class stmt state return next break continue throw))))
+    (next (add_class stmt state return (lambda (s) s) break continue throw))))
 
 ; Returns the resulting state after a single statement.
 (define M_state
