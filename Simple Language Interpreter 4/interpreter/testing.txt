@@ -7,4 +7,15 @@ return 1;
 function b (){
 return true;
 }
+static function main(){
+return 1;
+}
+
+}
+
+class CLASS2{
+var x1 = 1;
+function a1 (){
+return 1;
+}
 }
