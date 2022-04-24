@@ -2,6 +2,9 @@ class A{
 var x = 1;
 var y = 2;
 function return1(){
+function return2(){
+return 2;
+}
 return 1;
 }
 }
@@ -9,8 +12,9 @@ return 1;
 
 class B {
   static function main() {
-    var b = new B();
-    return b;
+    var a = new A();
+    return a.return1();
+    
   }
 }
 
