@@ -1,6 +1,7 @@
 ; Group 5 - Josh Tang, John Mays, Abhay Pant
 #lang racket
 (require "classParser.rkt")
+(provide (all-defined-out))
 
 ; ==================================================================================================
 ;                                           ABSTRACTIONS
@@ -62,6 +63,7 @@
 (define class_body cadddr)
 (define superclass caddr)
 (define class_name cadr)
+(define class_fields cddr)
 
 ; Instance abstractions
 (define instance_value caddr)
@@ -180,13 +182,6 @@
       [else (append (list (cons (class_name (car stmt))) (cons (make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt))) (state_vals state))) (pop_outer_layer state))])))
       ;(make_class_closure (superclass (car stmt)) (M_statementlist (class_body (car stmt))) (class_name (car stmt)))
 
-; Creates instance binding along with instance closure
-(define add_instance
-  (lambda (stmt state)
-    (if (declared? (instance_class stmt) state)
-        (make_instance_closure (instance_class stmt))
-        (error 'instancerror "No such class has been declared."))))
-
 ; Creates a tuple containing the following:
 ;   - formal parameters
 ;   - function body
@@ -228,8 +223,11 @@
 ;    - Instance field values
 
 (define make_instance_closure
-  (lambda (class)
-    (if 
+  (lambda (stmt state)
+    (if (declared? (instance_class stmt) state)
+        (list (class_name stmt) (class_fields (get_var (class_name stmt) state)))
+        (error 'instancerror "No such class has been declared."))))
+    
     
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_state
@@ -321,7 +319,7 @@
 ;                                         STATE FUNCTIONS
 ; ==================================================================================================
 
-; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
+; Evaluates the return value of the program, replacing vs of #t and #f with 'true and 'false.
 (define M_return
   (lambda (stmt state return throw)
     (return (M_value (ret_val stmt) state throw))))
@@ -331,7 +329,7 @@
 (define M_declaration
   (lambda (stmt state next throw)
     (cond
-      [(and (not (null? (cddr stmt))) (eq? (value_keyword stmt) 'new)) (add_var (var_name stmt) (M_instancedef (instance_value stmt) state next))]
+      [(and (not (null? (cddr stmt))) (eq? (value_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt state)) state)]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
@@ -424,17 +422,6 @@
 (define M_classdef
   (lambda (stmt state next)
     (next (add_class stmt state))))
-
-;Creates a binding for class definitiions.
-(define M_classdef
-  (lambda (stmt state next)
-    (next (add_class stmt state))))
-
-;Creates a binding for instances.
-(define M_instancedef
-  (lambda (stmt state next)
-    (add_instance stmt state)))
-; COMMENT: I used to call next on add_instance, but I am testing not doing that any more.
 
 ; Returns the resulting state after a single statement.
 (define M_state

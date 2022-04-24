@@ -1,11 +1,3 @@
-class A{
-var x = 1;
-var y = 2
-function add1(var i){
-return i + 1;
-}
-}
-
 class B {
   static function main() {
     var b = new B();
