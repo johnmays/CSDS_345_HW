@@ -64,7 +64,8 @@
 (define class_name cadr)
 
 ; Instance abstractions
-(define instance_value cddr)
+(define instance_value caddr)
+(define value_keyword caaddr)
 (define instance_class cadr)
 
 ; Empty state
@@ -330,7 +331,7 @@
 (define M_declaration
   (lambda (stmt state next throw)
     (cond
-      [(and (not (null? (cddr stmt))) (eq? (var_value stmt) 'new)) (add_var (var_name stmt) (M_instancedef (instance_value stmt) state next))]
+      [(and (not (null? (cddr stmt))) (eq? (value_keyword stmt) 'new)) (add_var (var_name stmt) (M_instancedef (instance_value stmt) state next))]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
