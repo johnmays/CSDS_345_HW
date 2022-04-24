@@ -51,6 +51,7 @@
 (define closure_params car)
 (define closure_body cadr)
 (define closure_getstate caddr)
+(define func_list caadr)
 
 ; Parameter abstractions
 (define curr_param car)
@@ -173,7 +174,6 @@
       [(declared? (class_name stmt) state) (error 'classerror "Class name already declared: ~a" (class_name stmt))]
       [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw ) (class_name stmt)) (state_vals state)))]
       [else (append (list (cons (class_name stmt)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) empty_state return next break continue throw) (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
-      ;(make_class_closure (superclass stmt) (M_statementlist (class_body stmt)) (class_name stmt))
 ; Creates a tuple containing the following:
 ;   - formal parameters
 ;   - function body
@@ -225,15 +225,29 @@
 
 ; A function to retrieve a given function's closure.
 (define get_func_closure
-  (lambda (name state)
+  (lambda (name classname state)
     (cond
       [(equal? state empty_state) (error 'funcerror "Function not found: ~a" name)]
-      [(atom? (car state)) (get_func_closure name (cdr state))]
-      [(null? (state_vars state)) (get_func_closure name (pop_outer_layer state))]
-      [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
-      [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+      [(null? (car state)) (error 'funcerror "Function not found: ~a" name)]
+      [(eq? (caar state) classname) (get_func_closure_helper name (caadr state))]
+      [else (get_func_closure name classname (list (cdr (state_vars state)) (cdr (state_vals state))))])))
 
+(define get_func_closure_helper
+  (lambda (name state)
+    (cond
+      [(null? (func_list state)) (error 'funcerror "Function not found: ~a" name)]
+      [(eq? (car (func_list state)) name) (curr_closure state)]
+      [else (get_func_closure_helper name (list (car state) (list (cdr (func_list state)) (func_closures state)) (cddr state)))])))
+
+(define func_closures
+  (lambda (x)
+    (cdr (cadr (car (cdr x))))))
+(define curr_closure
+  (lambda (x)
+    (caadr (car (cdr x)))))
 ; A function to count the number of parameters.
+
+
 (define num_params
   (lambda (param_list)
     (cond
@@ -481,8 +495,8 @@
 
 ; Our main function.
 (define interpret
-  (lambda (filename)
-      (execute_main (global_state_bindings (parser filename)))))
+  (lambda (filename classname)
+      (execute_main (global_state_bindings (parser filename)) classname)))
 
 ; Our initial pass through the file. This will populate the state with the global variables and function definitions.
 (define global_state_bindings
@@ -497,9 +511,9 @@
 ; Our secondary pass through the file, executing whatever is in the declared main() function.
 ; (If there is no main function, then get_func_closure will issue an error.)
 (define execute_main
-  (lambda (global_state)
+  (lambda (global_state classname)
     (call/cc (lambda (ret) (M_statementlist
-                            (closure_body (get_func_closure 'main global_state))
+                            (closure_body (get_func_closure 'main classname global_state))
                             (create_function_layer 'main global_state)
                             (lambda (ret) (cond
                                             [(number? ret) ret]
