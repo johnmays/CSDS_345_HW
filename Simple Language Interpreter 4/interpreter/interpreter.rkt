@@ -63,6 +63,12 @@
 (define class_body cadddr)
 (define superclass caddr)
 (define class_name cadr)
+(define class_fields cddr)
+
+; Instance abstractions
+(define instance_value caddr)
+(define value_keyword caaddr)
+(define instance_class cadr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -126,6 +132,21 @@
                                       (declared? var (next_layer state)))]
       [(eq? var (car (state_vars state))) #t]
       [else (declared? var (append (list (cdr (state_vars state)) (cdr (state_vals state))) (next_layer state)))])))
+
+(define class_exists?
+  (lambda (classname state)
+    (cond
+      [(equal? state empty_state) #f]
+      [(atom? (car state)) (class_exists? classname (cdr state))]
+      [(list? (car state))
+       (if (class_exists_helper classname (car state)) #t (class_exists? classname (cdr state)))])))
+
+(define class_exists_helper
+  (lambda (classname state)
+    (cond
+      [(null? state) #f]
+      [(eq? (car state) classname) #t]
+      [else (class_exists_helper classname (cdr state))])))
 
 ; Assigns a particular value to a given variable.
 ; This utilizes set-box!, which will cause side effects by default.
@@ -215,8 +236,14 @@
 ;    - Class (Runtime type)
 ;    - Instance field values
 (define make_instance_closure
-  (lambda (class i_fields)
-    (list class i_fields)))
+  (lambda (stmt state)
+    (if (class_exists? (instance_class stmt) (get_global_state state))
+        (list (class_name stmt) (class_fields (get_var (class_name stmt) (get_global_state state))))
+        (error 'instancerror "No such class has been declared."))))
+
+(define get_global_state
+  (lambda (state)
+    (take-right state 2)))
 
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_state
@@ -331,9 +358,10 @@
 ; Otherwise, the variable is given the value #<void>.
 (define M_declaration
   (lambda (stmt state next throw)
-    (if (not (null? (cddr stmt)))
-        (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))
-        (next (add_var (var_name stmt) (void) state)))))
+    (cond
+      [(and (not (null? (cddr stmt))) (list? (caddr stmt)) (eq? (value_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))]
+      [else (next (add_var (var_name stmt) (void) state))])))
 
 ; Returns the resulting state after a variable is assigned.
 (define M_assign
