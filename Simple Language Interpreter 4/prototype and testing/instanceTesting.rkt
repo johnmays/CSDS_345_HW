@@ -15,8 +15,8 @@
     (append bm am)))
 
 ; Testing instance field stuff
-(define a_fields '((ai1 ai2 ai3) (1 2 3)))
-(define b_names '(bi1 ai2 bi3))
+(define a_fields '((a1 a2 a3) (1 2 3)))
+(define b_names '(b1 a2 b3))
 (define b_vals '(4 5 6))
 
 ; Again, suppose class B extends class A...

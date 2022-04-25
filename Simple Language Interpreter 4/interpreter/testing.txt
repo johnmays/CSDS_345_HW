@@ -1,20 +1,6 @@
-class A{
-var x = 1;
-var y = 2;
-function return1(){
-function return2(){
-return 2;
-}
-return 1;
-}
-}
-
-
-class B {
-  static function main() {
-    var a = new A();
-    return a.return1();
-    
+class A {
+  var x = 1;
+  function main() {
+    return y();
   }
 }
-

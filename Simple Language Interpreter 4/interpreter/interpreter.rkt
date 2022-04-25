@@ -47,10 +47,15 @@
 (define func_body cadddr)
 (define actual_params cddr)
 
-; Closure abstractions
-(define closure_params car)
-(define closure_body cadr)
-(define closure_getstate caddr)
+; Function closure abstractions
+(define fclosure_params car)
+(define fclosure_body cadr)
+(define fclosure_scope caddr)
+
+; Class closure abstractions
+(define cclosure_superclasses car)
+(define cclosure_funcs cadr)
+(define cclosure_instances caddr)
 (define func_list caadr)
 
 ; Parameter abstractions
@@ -59,7 +64,7 @@
 (define next_param cdr)
 (define next_ptr cddr)
 
-;Class abstractions
+; Class abstractions
 (define class_body cadddr)
 (define superclass caddr)
 (define class_name cadr)
@@ -78,26 +83,49 @@
 ;                                         HELPER FUNCTIONS
 ; ==================================================================================================
 
+; As a general note, our state now has the following form:
+; ((varname layer) (varvals layer) ... (instance var names) (instance val names) (class names) (class closures))
+; The last two positions are reserved for classes, and they are the "global state". Instance variables and instance names
+; will occupy the next two positions, and are handled differently because of polymorphism.
+
 ; Checks if the current element is an atom, which can denote a function or variable name.
 (define atom?
   (lambda (x)
     (not (or (pair? x) (null? x)))))
 
-; Retrieves the value (or the box) of a given variable. The helper method get_ptr is used in cases with pass-by-reference.
-; Here, the state takes the form ((var1 var2 var3 ...) (val1 val2 val3 ...) [subsequent layers here]).
+; Retrieves the value (or values of the box) of a given variable. The helper method get_ptr is used in cases with pass-by-reference.
 (define get_var
   (lambda (var state)
     (cond
-      [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(atom? (car state)) (get_var var (cdr state))]
+      [(length state 4) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant
+      [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
        (cond
-         {(not (box? (car (state_vals state)))) (get_var var (cdr state))}
+         {(not (box? (car (state_vals state)))) (get_var var (cons (list       ; Skip over any function closures, since we're only querying variables
+                                                                    (cdr (state_vars state))
+                                                                    (cdr (state_vals state))) (next_layer state)))}
          {(void? (unbox (car (state_vals state)))) (error 'varerror "Variable not assigned: ~a" var)}
          {else (unbox (car (state_vals state)))})]
-      [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+      [else (get_var var (cons (list
+                                (cdr (state_vars state))
+                                (cdr (state_vals state))) (next_layer state)))])))
 
+; If the variable is an instance variable, we use the reversing scheme to find the queried value instead.
+; The helper method, get_idx, returns the zero-indexed position of the variable from the end of the variable list.
+(define get_instance_var
+  (lambda (var instance_state)
+    (unbox (list-ref (state_vals instance_state) (get_idx var (state_vars instance_state))))))
+
+(define get_idx
+  (lambda (var var_names)
+    (cond
+      [(null? var_names) (error 'varerror "Variable not declared: ~a" var)]
+      [(eq? var (car var_names)) (- (length var_names) 1)]
+      [else (get_idx var (cdr var_names))])))
+
+; Retrieves the actual item instead of the unboxed value.
+; This is used for pass-by-reference.
 (define get_ptr
   (lambda (var state)
     (cond
@@ -123,6 +151,8 @@
       [(null? (next_layer state)) (list (cons var (state_vars state)) (cons ptr (state_vals state)))]
       [else (append (list (cons var (state_vars state)) (cons ptr (state_vals state))) (pop_outer_layer state))])))
 
+; Determines whether a variable in the same scope has previously been declared.
+; Variables can't be redeclared in flow control settings (if statements, while loops, etc.)
 (define declared?
   (lambda (var state)
     (cond
@@ -133,20 +163,10 @@
       [(eq? var (car (state_vars state))) #t]
       [else (declared? var (append (list (cdr (state_vars state)) (cdr (state_vals state))) (next_layer state)))])))
 
+; Checks if the class exists in the global state.
 (define class_exists?
-  (lambda (classname state)
-    (cond
-      [(equal? state empty_state) #f]
-      [(atom? (car state)) (class_exists? classname (cdr state))]
-      [(list? (car state))
-       (if (class_exists_helper classname (car state)) #t (class_exists? classname (cdr state)))])))
-
-(define class_exists_helper
-  (lambda (classname state)
-    (cond
-      [(null? state) #f]
-      [(eq? (car state) classname) #t]
-      [else (class_exists_helper classname (cdr state))])))
+  (lambda (classname global_state)
+    (member classname (state_vars global_state))))
 
 ; Assigns a particular value to a given variable.
 ; This utilizes set-box!, which will cause side effects by default.
@@ -188,13 +208,20 @@
       [(null? (next_layer state)) (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state)))]
       [else (append (list (cons name (state_vars state)) (cons (make_function_closure param_list body state) (state_vals state))) (pop_outer_layer state))])))
 
-;Creates class binding along with its closure
+; Creates class binding along with its closure
 (define add_class
   (lambda (stmt state return next break continue throw)
     (cond
       [(declared? (class_name stmt) state) (error 'classerror "Class name already declared: ~a" (class_name stmt))]
-      [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw ) (class_name stmt)) (state_vals state)))]
-      [else (append (list (cons (class_name stmt)) (cons (make_class_closure (superclass stmt) (M_statementlist (class_body stmt) empty_state return next break continue throw) (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
+      [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state))
+                                        (cons (make_class_closure (superclass stmt)
+                                                                  (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw)
+                                                                  (class_name stmt)) (state_vals state)))]
+      [else (append (list (cons (class_name stmt))
+                          (cons (make_class_closure (superclass stmt)
+                                                    (M_statementlist (class_body stmt) empty_state return next break continue throw)
+                                                    (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
+
 ; Creates a tuple containing the following:
 ;   - formal parameters
 ;   - function body
@@ -206,15 +233,16 @@
           (lambda (st) (find_state state st))
           (lambda (v) v))))
 
-;Creates a tuple containing the following:
-;   - Superclass
-;   - Methods
-;   - Class Fields
-;   - Instance field names + initial values
-
+; Creates a tuple containing the following:
+;   - superclass
+;   - methods
+;   - class fields
+;   - instance field names + initial values
 (define make_class_closure
   (lambda (superclass class_body classname)
-    (list superclass (filter_methods (state_vars class_body) (state_vals class_body) classname) (filter_instance_fields (state_vars class_body) (state_vals class_body)))))
+    (list superclass
+          (filter_methods (state_vars class_body) (state_vals class_body) classname)
+          (filter_instance_fields (state_vars class_body) (state_vals class_body)))))
 
 (define filter_methods
   (lambda (vars vals classname)
@@ -229,21 +257,28 @@
       [(or (null? vars) (null? vals)) empty_state]
       [(list? (car vals)) (filter_instance_fields (cdr vars) (cdr vals))]
       [else (add_ptr (car vars) (car vals) (filter_instance_fields (cdr vars) (cdr vals)))])))
-      
-      
 
-;Creates a tuple containing the following:
-;    - Class (Runtime type)
-;    - Instance field values
+; Finds the class closure from the given class name.
+(define get_class_closure
+  (lambda (name global_state)
+    (cond
+      [(equal? global_state empty_state) (error "Class not found: ~a" name)]
+      [(eq? name (car (state_vars global_state))) (car (state_vals (global_state)))]
+      [else (get_class_closure name (list (cdr (state_vars global_state))
+                                          (cdr (state_vals global_state))))])))
+
+; Creates a tuple containing the following:
+;    - class (runtime type)
+;    - instance field values
 (define make_instance_closure
   (lambda (stmt state)
     (if (class_exists? (instance_class stmt) (get_global_state state))
         (list (class_name stmt) (class_fields (get_var (class_name stmt) (get_global_state state))))
-        (error 'instancerror "No such class has been declared."))))
+        (error 'classerror "Class not found: ~a" (instance_class stmt)))))
 
 (define get_global_state
   (lambda (state)
-    (take-right state 2)))
+    (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements
 
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_state
@@ -251,30 +286,32 @@
     (take-right given_state (length orig_state))))
 
 ; A function to retrieve a given function's closure.
+; This breaks into two cases: first of all, if the case isn't 
 (define get_func_closure
   (lambda (name classname state)
-    (cond
-      [(equal? state empty_state) (error 'funcerror "Function not found: ~a" name)]
-      [(null? (car state)) (error 'funcerror "Function not found: ~a" name)]
-      [(eq? (caar state) classname) (get_func_closure_helper name (caadr state))]
-      [else (get_func_closure name classname (list (cdr (state_vars state)) (cdr (state_vals state))))])))
+    (if (eq? classname 'this)
+        (search_this name classname state)
+        (search_global name (cclosure_funcs (get_class_closure classname (get_global_state state)))))))
 
-(define get_func_closure_helper
-  (lambda (name state)
+; NOTE: the semantics of "this" are still kinda weird! get_func_closure will not work well yet.
+(define search_this
+  (lambda (name classname state)
     (cond
-      [(null? (func_list state)) (error 'funcerror "Function not found: ~a" name)]
-      [(eq? (car (func_list state)) name) (curr_closure state)]
-      [else (get_func_closure_helper name (list (car state) (list (cdr (func_list state)) (func_closures state)) (cddr state)))])))
+      [(length state 4) (search_global name (cclosure_funcs (get_class_closure classname (get_global_state state))))]
+      [(atom? (car state)) (get_func_closure name (cdr state))]
+      [(null? (state_vars state)) (get_func_closure name (pop_outer_layer state))]
+      [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
+      [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
-(define func_closures
-  (lambda (x)
-    (cdr (cadr (car (cdr x))))))
-(define curr_closure
-  (lambda (x)
-    (caadr (car (cdr x)))))
+(define search_global
+  (lambda (name class_funcs)
+    (cond
+      [(equal? class_funcs empty_state) (error 'funcerror "Function not found: ~a" name)]
+      [(eq? (car (state_vars class_funcs)) name) (car (state_vals class_funcs))]
+      [else (search_global name (list (cdr (state_vars class_funcs))
+                                      (cdr (state_vals class_funcs))))])))
+
 ; A function to count the number of parameters.
-
-
 (define num_params
   (lambda (param_list)
     (cond
@@ -334,10 +371,10 @@
 (define M_funexprcall
   (lambda (stmt state throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (if (not (eq? (num_params (closure_params closure)) (num_params (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (closure_params closure)) (num_params (actual_params stmt)))
-          (M_statementlist (closure_body closure)
-                           (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
+      (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
+          (M_statementlist (fclosure_body closure)
+                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -479,10 +516,10 @@
 (define M_funstmtcall
   (lambda (stmt state next throw)
     (let ([closure (get_func_closure (func_name stmt) state)])
-      (if (not (eq? (num_params (closure_params closure)) (num_params (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (closure_params closure)) (num_params (actual_params stmt)))
-          (M_statementlist (closure_body closure)
-                           (bind_params (closure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((closure_getstate closure) state)) throw)
+      (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
+          (M_statementlist (fclosure_body closure)
+                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -541,7 +578,7 @@
 (define execute_main
   (lambda (global_state classname)
     (call/cc (lambda (ret) (M_statementlist
-                            (closure_body (get_func_closure 'main classname global_state))
+                            (fclosure_body (get_func_closure 'main classname global_state))
                             (create_function_layer 'main global_state)
                             (lambda (ret) (cond
                                             [(number? ret) ret]
