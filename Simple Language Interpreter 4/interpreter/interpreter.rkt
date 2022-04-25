@@ -101,7 +101,7 @@
 (define get_var
   (lambda (var state)
     (cond
-      [(length state 4) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
+      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
       [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
@@ -219,7 +219,7 @@
       [(declared? (class_name stmt) state) (error 'classerror "Class name already declared: ~a" (class_name stmt))]
       [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state))
                                         (cons (make_class_closure (class_superclass stmt)
-                                                                  (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw)
+                                                                  (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw (class_name stmt))
                                                                   (class_name stmt)) (state_vals state)))]
       [else (append (list (cons (class_name stmt))
                           (cons (make_class_closure (class_superclass stmt)
@@ -272,7 +272,7 @@
   (lambda (name global_state)
     (cond
       [(equal? global_state empty_state) (error "Class not found: ~a" name)]
-      [(eq? name (car (state_vars global_state))) (car (state_vals (global_state)))]
+      [(eq? name (car (state_vars global_state))) (car (state_vals global_state))]
       [else (get_class_closure name (list (cdr (state_vars global_state))
                                           (cdr (state_vals global_state))))])))
 
@@ -583,7 +583,9 @@
                      (lambda (next) next)
                      (lambda (break) (error 'breakerr "Invalid break location."))
                      (lambda (cont) (error 'conterror "Invalid continue location."))
-                     (lambda (ex val) (error 'throwerror "Invalid throw location.")))))
+                     (lambda (ex val) (error 'throwerror "Invalid throw location."))
+                     'dummy
+                     )))
 
 ; Our secondary pass through the file, executing whatever is in the declared main() function.
 ; (If there is no main function, then get_func_closure will issue an error.)
