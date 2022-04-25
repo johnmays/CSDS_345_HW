@@ -66,7 +66,7 @@
 
 ; Class abstractions
 (define class_body cadddr)
-(define superclass caddr)
+(define class_superclass caddr)
 (define class_name cadr)
 (define class_fields cddr)
 
@@ -135,7 +135,7 @@
       [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (car (state_vals state))]
       [else (get_ptr var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
-; Adds a variable (or reference) to the state and returns the state. The helper method add_ptr is used whenever a reference is explicitly specified.
+; Adds a variable (or reference) to the state and returns the state. The helper method add_raw is used whenever a reference is explicitly specified.
 ; If the variable already exists in the state, then raise an error.
 (define add_var
   (lambda (var val state)
@@ -144,7 +144,7 @@
       [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
       [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_outer_layer state))])))
 
-(define add_ptr
+(define add_raw
   (lambda (var ptr state)
     (cond
       [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
@@ -214,11 +214,11 @@
     (cond
       [(declared? (class_name stmt) state) (error 'classerror "Class name already declared: ~a" (class_name stmt))]
       [(null? (next_layer state)) (list (cons (class_name stmt) (state_vars state))
-                                        (cons (make_class_closure (superclass stmt)
+                                        (cons (make_class_closure (class_superclass stmt)
                                                                   (M_statementlist (class_body stmt) empty_state return (lambda (s) s) break continue throw)
                                                                   (class_name stmt)) (state_vals state)))]
       [else (append (list (cons (class_name stmt))
-                          (cons (make_class_closure (superclass stmt)
+                          (cons (make_class_closure (class_superclass stmt)
                                                     (M_statementlist (class_body stmt) empty_state return next break continue throw)
                                                     (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
 
@@ -230,8 +230,13 @@
 (define make_function_closure
   (lambda (param_list body state)
     (list param_list body
-          (lambda (st) (find_state state st))
+          (lambda (st) (find_scope state st))
           (lambda (v) v))))
+
+; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
+(define find_scope
+  (lambda (orig_state given_state)
+    (take-right given_state (length orig_state))))
 
 ; Creates a tuple containing the following:
 ;   - superclass
@@ -248,7 +253,7 @@
   (lambda (vars vals classname)
     (cond
       [(or (null? vars) (null? vals)) (list vars vals)]
-      [(list? (car vals)) (add_ptr (car vars) (append (car vals) (cons classname '())) (filter_methods (cdr vars) (cdr vals) classname))]
+      [(list? (car vals)) (add_raw (car vars) (append (car vals) (cons classname '())) (filter_methods (cdr vars) (cdr vals) classname))]
       [else (filter_methods (cdr vars) (cdr vals) classname)])))
 
 (define filter_instance_fields
@@ -256,7 +261,7 @@
     (cond
       [(or (null? vars) (null? vals)) empty_state]
       [(list? (car vals)) (filter_instance_fields (cdr vars) (cdr vals))]
-      [else (add_ptr (car vars) (car vals) (filter_instance_fields (cdr vars) (cdr vals)))])))
+      [else (add_raw (car vars) (car vals) (filter_instance_fields (cdr vars) (cdr vals)))])))
 
 ; Finds the class closure from the given class name.
 (define get_class_closure
@@ -280,28 +285,24 @@
   (lambda (state)
     (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements
 
-; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
-(define find_state
-  (lambda (orig_state given_state)
-    (take-right given_state (length orig_state))))
-
 ; A function to retrieve a given function's closure.
 ; This breaks into two cases: first of all, if the case isn't 
 (define get_func_closure
   (lambda (name classname state)
     (if (eq? classname 'this)
-        (search_this name classname state)
+        (search_env name classname state)
         (search_global name (cclosure_funcs (get_class_closure classname (get_global_state state)))))))
 
 ; NOTE: the semantics of "this" are still kinda weird! get_func_closure will not work well yet.
-(define search_this
+(define search_env
   (lambda (name classname state)
     (cond
       [(length state 4) (search_global name (cclosure_funcs (get_class_closure classname (get_global_state state))))]
-      [(atom? (car state)) (get_func_closure name (cdr state))]
-      [(null? (state_vars state)) (get_func_closure name (pop_outer_layer state))]
+      [(atom? (car state)) (search_env name classname (cdr state))]
+      [(null? (state_vars state)) (search_env name classname (pop_outer_layer state))]
       [(and (eq? name (car (state_vars state))) (list? (car (state_vals state)))) (car (state_vals state))]
-      [else (get_func_closure name (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+      [else (search_env name classname (cons (cdr (state_vars state))
+                                             (cons (cdr (state_vals state)) (next_layer state))))])))
 
 (define search_global
   (lambda (name class_funcs)
@@ -312,6 +313,7 @@
                                       (cdr (state_vals class_funcs))))])))
 
 ; A function to count the number of parameters.
+; This ignores the ampersand (&) symbol, as that is used to determine whether the parameter is to be passed by reference or not.
 (define num_params
   (lambda (param_list)
     (cond
@@ -537,7 +539,7 @@
                                                (bind_params (next_ptr formal_params)
                                                             (next_param actual_params)
                                                             state
-                                                            (add_ptr (curr_ptr formal_params) (get_ptr (curr_param actual_params) state) func_state)
+                                                            (add_raw (curr_ptr formal_params) (get_ptr (curr_param actual_params) state) func_state)
                                                             throw))]
       [else (bind_params (next_param formal_params)
                          (next_param actual_params)
