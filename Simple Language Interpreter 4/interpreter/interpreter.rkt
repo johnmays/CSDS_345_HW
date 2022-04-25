@@ -234,8 +234,7 @@
 (define make_function_closure
   (lambda (param_list body state)
     (list param_list body
-          (lambda (st) (find_scope state st))
-          (lambda (v) v))))
+          (lambda (st) (find_scope state st)))))
 
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_scope
@@ -249,9 +248,12 @@
 ;   - instance field names + initial values
 (define make_class_closure
   (lambda (superclass class_body classname)
-    (list superclass
-          (filter_methods (state_vars class_body) (state_vals class_body) classname)
-          (filter_instance_fields (state_vars class_body) (state_vals class_body)))))
+    (if (null? superclass) 
+        (list superclass
+              (filter_methods (state_vars class_body) (state_vals class_body) classname)
+              (filter_instance_fields (state_vars class_body) (state_vals class_body)))
+        (list (cadr superclass) (filter_methods (state_vars class_body) (state_vals class_body) classname)
+              (filter_instance_fields (state_vars class_body) (state_vals class_body))))))
 
 (define filter_methods
   (lambda (vars vals classname)
