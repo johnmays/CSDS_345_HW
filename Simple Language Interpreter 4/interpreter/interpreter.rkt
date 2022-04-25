@@ -58,6 +58,10 @@
 (define cclosure_instances caddr)
 (define func_list caadr)
 
+; Instance closure abstractions
+(define iclosure_class car)
+(define iclosure_fields cadr)
+
 ; Parameter abstractions
 (define curr_param car)
 (define curr_ptr cadr)
@@ -72,7 +76,7 @@
 
 ; Instance abstractions
 (define instance_value caddr)
-(define value_keyword caaddr)
+(define new_keyword caaddr)
 (define instance_class cadr)
 
 ; Empty state
@@ -97,7 +101,7 @@
 (define get_var
   (lambda (var state)
     (cond
-      [(length state 4) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant
+      [(length state 4) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
       [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
@@ -126,14 +130,14 @@
 
 ; Retrieves the actual item instead of the unboxed value.
 ; This is used for pass-by-reference.
-(define get_ptr
+(define get_raw
   (lambda (var state)
     (cond
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(atom? (car state)) (get_ptr var (cdr state))]
-      [(null? (state_vars state)) (get_ptr var (pop_outer_layer state))]
+      [(atom? (car state)) (get_raw var (cdr state))]
+      [(null? (state_vars state)) (get_raw var (pop_outer_layer state))]
       [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (car (state_vals state))]
-      [else (get_ptr var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+      [else (get_raw var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; Adds a variable (or reference) to the state and returns the state. The helper method add_raw is used whenever a reference is explicitly specified.
 ; If the variable already exists in the state, then raise an error.
@@ -327,46 +331,46 @@
 
 ; Evaluates the value of a general expression.
 (define M_value
-  (lambda (expr state throw)
-    (M_value_helper expr state (lambda (v) v) throw)))
+  (lambda (expr state throw classname)
+    (M_value_helper expr state (lambda (v) v) throw classname)))
 
 (define M_value_helper
-  (lambda (expr state return throw)
+  (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) throw classname)) throw classname)]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
-                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw)) throw)]                                     
-      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) throw)]
-      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2))) throw)) throw)]
-      [else (M_bool expr state return throw)])))
+                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw classname)) throw classname)]                                     
+      [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) throw classname)]
+      [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '%) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (remainder v1 v2))) throw classname)) throw classname)]
+      [else (M_bool expr state return throw classname)])))
 
 ; Evaluates the result of a prefix boolean expression.
 (define M_bool
-  (lambda (expr state return throw)
-    (M_bool_helper expr state return throw)))
+  (lambda (expr state return throw classname)
+    (M_bool_helper expr state return throw classname)))
 
 (define M_bool_helper
-  (lambda (expr state return throw)
+  (lambda (expr state return throw classname)
     (cond
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw))]
-      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) throw)]
-      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))) throw)) throw)]
-      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) throw)) throw)]
-      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))) throw)) throw)]
+      [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) throw classname)]
+      [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '==) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (eq? v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '!=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (not (eq? v1 v2)))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '<)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (< v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '<=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (<= v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '>)  (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (> v1 v2))) throw classname)) throw classname)]
+      [(eq? (pre_op expr) '>=) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (>= v1 v2))) throw classname)) throw classname)]
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 ; Evaluates the result of a function call as an expression.
@@ -381,7 +385,8 @@
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
-                           (lambda (ex st) (throw ex state)))))))
+                           (lambda (ex st) (throw ex state))
+                           (iclosure_class closure))))))
 
 
 ; ==================================================================================================
@@ -390,72 +395,75 @@
 
 ; Evaluates the return value of the program, replacing instances of #t and #f with 'true and 'false.
 (define M_return
-  (lambda (stmt state return throw)
-    (return (M_value (ret_val stmt) state throw))))
+  (lambda (stmt state return throw classname)
+    (return (M_value (ret_val stmt) state throw classname))))
 
 ; Returns a state that declares a variable. If a value is specified, then the variable is associated with that value.
-; Otherwise, the variable is given the value #<void>.
+; Alternatively, if a new instance is made (via the 'new' keyword), then the instance closure is made and bound to the variable.
+; Otherwise, the variable is given the default value #<void>.
 (define M_declaration
-  (lambda (stmt state next throw)
+  (lambda (stmt state next throw classname)
     (cond
-      [(and (not (null? (cddr stmt))) (list? (caddr stmt)) (eq? (value_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
-      [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw) state))]
+      [(eq? (new_keyword stmt) 'new) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw classname) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
 ; Returns the resulting state after a variable is assigned.
 (define M_assign
-  (lambda (stmt state next throw)
-    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state throw) state))))
+  (lambda (stmt state next throw classname)
+    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state throw classname) state))))
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
-  (lambda (stmt state return next break continue throw)
-    (if (M_bool (condition stmt) state (lambda (ret) ret) throw)
-        (M_state (stmt1 stmt) state return next break continue throw)
+  (lambda (stmt state return next break continue throw classname)
+    (if (M_bool (condition stmt) state (lambda (ret) ret) throw classname)
+        (M_state (stmt1 stmt) state return next break continue throw classname)
         (if (null? (elif stmt))
             (next state)
-            (M_state (stmt2 stmt) state return next break continue throw)))))
+            (M_state (stmt2 stmt) state return next break continue throw classname)))))
 
 ; Returns a state that results after the execution of a while loop.
 ; We invoke a helper method, loop, that does the actual looping for us.
 (define M_while
-  (lambda (stmt state return next throw)
-    (loop (condition stmt) (loop_body stmt) state return next throw)))
+  (lambda (stmt state return next throw classname)
+    (loop (condition stmt) (loop_body stmt) state return next throw classname)))
 
 (define loop
-  (lambda (condition body state return next throw)
-    (if (M_bool condition state (lambda (ret) ret) throw)
+  (lambda (condition body state return next throw classname)
+    (if (M_bool condition state (lambda (ret) ret) throw classname)
         (M_state body state return
                  (lambda (st) (loop condition body st return next throw))
                  (lambda (st) (next st))                                  ; <-- Break continuation
                  (lambda (st) (loop condition body st return next throw)) ; <-- Continue continuation (same as next)
-                 throw)
+                 throw
+                 classname)
         (next state))))
 
 ; Evaluates a block of code.
 (define M_block
-  (lambda (stmts state return next break continue throw)
+  (lambda (stmts state return next break continue throw classname)
     (M_statementlist (next_stmt stmts)
                      (create_block_layer state)
                      return
                      (lambda (st) (next (pop_outer_layer st)))
                      (lambda (st) (break (pop_outer_layer st)))
                      (lambda (st) (continue (pop_outer_layer st)))
-                     (lambda (ex st) (throw ex (pop_outer_layer st))))))
+                     (lambda (ex st) (throw ex (pop_outer_layer st)))
+                     classname)))
 
 ; Evaluates a try/catch/finally statement.
 ; We also have helper methods to reuse M_block for the try and finally blocks (by manually inserting the "begin" keyword at those locations).
 ; Another helper method creates all of the next/break/continue/throw continuations as necessary.
 (define M_try
-  (lambda (stmt state return next break continue throw)
+  (lambda (stmt state return next break continue throw classname)
     (let* (
            [try_stmts (blockify_try (try_block stmt))]
            [finally_stmts (blockify_finally (finally_block stmt))]
-           [new_return (lambda (v) (M_block finally_stmts state return (lambda (s) (return s)) break continue throw))]
-           [new_break (lambda (v) (M_block finally_stmts state return (lambda (s) (break s)) break continue throw))]
-           [new_continue (lambda (v) (M_block finally_stmts state return (lambda (s) (continue s)) break continue throw))]
-           [new_throw (create_throw_continuations (catch_block stmt) state return next break continue throw finally_stmts)])
-      (M_block try_stmts state new_return (lambda (st) (M_block finally_stmts st return next break continue throw)) new_break new_continue new_throw))))
+           [new_return (lambda (v) (M_block finally_stmts state return (lambda (s) (return s)) break continue throw classname))]
+           [new_break (lambda (v) (M_block finally_stmts state return (lambda (s) (break s)) break continue throw classname))]
+           [new_continue (lambda (v) (M_block finally_stmts state return (lambda (s) (continue s)) break continue throw classname))]
+           [new_throw (create_throw_continuations (catch_block stmt) state return next break continue throw classname finally_stmts)])
+      (M_block try_stmts state new_return (lambda (st) (M_block finally_stmts st return next break continue throw classname)) new_break new_continue new_throw classname))))
     
 (define blockify_try
   (lambda (try_stmt)
@@ -469,54 +477,55 @@
       [else (cons 'begin (cadr finally_stmt))])))
 
 (define create_throw_continuations
-  (lambda (stmt state return next break continue throw finally)
+  (lambda (stmt state return next break continue throw classname finally)
     (cond
-      [(null? stmt) (lambda (ex st) (M_block finally state return (lambda (st) (throw ex st)) break continue throw))]
+      [(null? stmt) (lambda (ex st) (M_block finally state return (lambda (st) (throw ex st)) break continue throw classname))]
       [(not (eq? (curr_stmt stmt) 'catch)) (error 'badstmt "Incorrect catch statement.")]
       [else (lambda (ex st) (M_statementlist
                              (stmt1 stmt)
                              (add_var (catch_var stmt) ex (create_block_layer state))
                              return
-                             (lambda (st1) (M_block finally (pop_outer_layer st1) return next break continue throw))
+                             (lambda (st1) (M_block finally (pop_outer_layer st1) return next break continue throw classname))
                              (lambda (st1) (break (pop_outer_layer st1)))
                              (lambda (st1) (continue (pop_outer_layer st1)))
-                             (lambda (ex1 st1) (throw ex1 (pop_outer_layer st1)))))])))
+                             (lambda (ex1 st1) (throw ex1 (pop_outer_layer st1)))
+                             classname))])))
 
 ; Creates a binding for function definitions.
 (define M_fundef
   (lambda (stmt state next)
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
-;Creates a binding for class definitiions.
+; Creates a binding for class definitions.
 (define M_classdef
   (lambda (stmt state return next break continue throw)
     (next (add_class stmt state return (lambda (s) s) break continue throw))))
 
 ; Returns the resulting state after a single statement.
 (define M_state
-  (lambda (stmt state return next break continue throw)
+  (lambda (stmt state return next break continue throw classname)
     (cond
-      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return throw)]
-      [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next throw)]
-      [(eq? (curr_stmt stmt) '=) (M_assign stmt state next throw)]
-      [(eq? (curr_stmt stmt) 'if) (M_if stmt state return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'while) (M_while stmt state return next throw)]
-      [(eq? (curr_stmt stmt) 'begin) (M_block stmt state return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'return) (M_return stmt state return throw classname)]
+      [(eq? (curr_stmt stmt) 'var) (M_declaration stmt state next throw classname)]
+      [(eq? (curr_stmt stmt) '=) (M_assign stmt state next throw classname)]
+      [(eq? (curr_stmt stmt) 'if) (M_if stmt state return next break continue throw classname)]
+      [(eq? (curr_stmt stmt) 'while) (M_while stmt state return next throw classname)]
+      [(eq? (curr_stmt stmt) 'begin) (M_block stmt state return next break continue throw classname)]
       [(eq? (curr_stmt stmt) 'break) (break state)]
       [(eq? (curr_stmt stmt) 'continue) (continue state)]
-      [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw)]
-      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw) state)]
-      [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw)]
+      [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw classname)]
+      [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw classname) state)]
+      [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw classname)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
       [(eq? (curr_stmt stmt) 'static-function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw)]
+      [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw classname)]
       [(eq? (curr_stmt stmt) 'class) (M_classdef stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
 ; Handles the continuations and the state modifications made during a function call.
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
-  (lambda (stmt state next throw)
+  (lambda (stmt state next throw classname)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
@@ -526,7 +535,8 @@
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
-                           (lambda (ex st) (throw ex state)))))))
+                           (lambda (ex st) (throw ex state))
+                           (iclosure_class closure))))))
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
@@ -539,7 +549,7 @@
                                                (bind_params (next_ptr formal_params)
                                                             (next_param actual_params)
                                                             state
-                                                            (add_raw (curr_ptr formal_params) (get_ptr (curr_param actual_params) state) func_state)
+                                                            (add_raw (curr_ptr formal_params) (get_raw (curr_param actual_params) state) func_state)
                                                             throw))]
       [else (bind_params (next_param formal_params)
                          (next_param actual_params)
@@ -548,13 +558,13 @@
                          throw)])))
 
 ; Handles lists of statements, which are executed sequentially
-; This is where we make our 'next' continuation, which refers to the next string of code to be executed
+; This is where we make our 'next' continuation, which refers to the next line of code to be executed
 (define M_statementlist
-  (lambda (stmts state return next break continue throw)
+  (lambda (stmts state return next break continue throw classname)
     (if (null? stmts)
         (next state)
         (M_state (curr_stmt stmts) state return
-                 (lambda (nstate) (M_statementlist (next_stmt stmts) nstate return next break continue throw)) break continue throw))))
+                 (lambda (nstate) (M_statementlist (next_stmt stmts) nstate return next break continue throw classname)) break continue throw classname))))
 
 ; ==================================================================================================
 ;                                                MAIN
@@ -565,7 +575,7 @@
   (lambda (filename classname)
       (execute_main (global_state_bindings (parser filename)) classname)))
 
-; Our initial pass through the file. This will populate the state with the global variables and function definitions.
+; Our initial pass through the file. This will populate the state with the class bindings and their original 
 (define global_state_bindings
   (lambda (stmts)
     (M_statementlist stmts empty_state
@@ -589,7 +599,8 @@
                             (lambda (next) next)
                             (lambda (break) (error 'breakerror "Invalid break location."))
                             (lambda (cont) (error 'conterror "Invalid continue location."))
-                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown.")))))))
+                            (lambda (ex val) (error 'throwerror "Uncaught exception thrown."))
+                            classname)))))
 
 ; Testing state
 ; '((g) (#&#t) (f e d) (#&#f #&#<void> #&3) (c b a) (#&2 #&1 #&#t))
