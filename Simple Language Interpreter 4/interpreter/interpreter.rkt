@@ -361,7 +361,7 @@
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
-      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw))]
+      [(eq? (pre_op expr) 'funcall) (return (M_funexprcall expr state throw classname))]
       [(eq? (pre_op expr) '!)  (M_bool_helper (l_operand expr) state (lambda (v1) (return (not v1))) throw classname)]
       [(eq? (pre_op expr) '&&) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (and v1 v2))) throw classname)) throw classname)]
       [(eq? (pre_op expr) '||) (M_bool_helper (l_operand expr) state (lambda (v1) (M_bool_helper (r_operand expr) state (lambda (v2) (return (or v1 v2))) throw classname)) throw classname)]
@@ -375,7 +375,7 @@
 
 ; Evaluates the result of a function call as an expression.
 (define M_funexprcall
-  (lambda (stmt state throw)
+  (lambda (stmt state throw classname)
     (let ([closure (get_func_closure (func_name stmt) state)])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
