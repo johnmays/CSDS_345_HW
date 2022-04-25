@@ -249,7 +249,7 @@
 (define make_class_closure
   (lambda (superclass class_body classname)
     (if (null? superclass) 
-        (list superclass
+        (list (void)
               (filter_methods (state_vars class_body) (state_vals class_body) classname)
               (filter_instance_fields (state_vars class_body) (state_vals class_body)))
         (list (cadr superclass) (filter_methods (state_vars class_body) (state_vals class_body) classname)
