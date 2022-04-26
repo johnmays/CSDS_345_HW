@@ -1,45 +1,61 @@
-Test 1: A main with code inside. This code should return 10.</p>
+Here are the tests for your interpreter, part 4.
 
-Test 2: A function that uses global variables. This code should return 14.</p>
+Test 1 should return 15 when running A's main.
 
-Test 3: A function that changes global variables. This code should return 45.</p>
+Test 2 should return 12 when running A's main.
 
-Test 4: A recursive function. This code should return 55.</p>
+Test 3 should return 125 when running A's main.
 
-Test 5: Functions with multiple parameters that hide global variables. This code should return 1.</p>
+Test 4 should return 36 when running A's main.
 
-Test 6: Verifying that your code uses static scoping instead of dynamic scoping. This code should return 115.</p>
+Test 5 should return 54 when running A's main.
 
-Test 7: Boolean parameters and return values. This code should return true.</p>
+Test 6 should return 110 when running A's main.
 
-Test 8: Multiple function calls in an expression. This code should return 20.</p>
+Test 7 should return 26 when running C's main.
 
-Test 9: A function call in the parameter of a function. This code should return 24.</p>
+Test 8 should return 117 when running Square's main.
 
-Test 10: A function call that ignores the return value. This code should return 2.</p>
+Test 9 should return 32 when running Square's main.
 
-Test 11: A function without a return statement. This code should return 35.</p>
+Test 10 should return 15 when running List's main.
 
-Test 12: Mismatched parameters and arguments. This code should give an error.</p>
+Test 11 should return 123456 when running List's main
 
-Test 13: Functions inside functions.  This code should return 90.</p>
+Test 12 should return 5285 when running List's main.
 
-Test 14: Functions inside functions accessing variables outside.  This code should return 69.</p>
+Test 13 should return -716 when run with C's main.
 
-Test 15: Functions inside functions with variables of the same name.  Thus code should return 87.</p>
+Test 21 should return 530 when running A's main.
 
-Test 16: Functions inside functions inside functions.  This code should return 64.</p>
+Test 22 should return 66 when running B's main.
 
-Test 17: Functions inside functions accessing out of scope variables.  This code should return an error with b out of scope.</p>
+Test 23 should return 1026 when running A's main.
 
-Test 18: try/catch finally, but no exception thrown.  This code should return 125.
+Test 24 should return 2045 when running A's main.
 
-Test 19: Throwing an exception inside a function.  This code should return 100.
+Test 31 should return 20 when running A's main.
 
-Test 20: Throwing an exception from a function.  This code should return 2000400.
+Test 32 should return 530 when running B's main.
 
-Test 21: Call-by-reference test. This code should return 3421.</p>
+Test 33 should return 615 when running B's main.
 
-Test 22: Assignment side effects with function calls. This code should return 20332.</p>
+Test 34 should return 16 when running Box's main.
 
-Test 23: Mixture of call-by-value and call-by-reference.  This code should return 21.</p>
+Test 35 should return 100 when running A's main.
+
+Test 36 should return 420 when running A's main.
+
+Test 37 should throw an error for "no this".
+
+Test 41 should return 300 when running Circle's main.
+
+Test 42 should give an error for a non-overridden abstract method.
+
+Test 51 should return 417 when running Square's main.
+
+Test 52 should return 10 when running A's main.
+
+Test 53 should return 48 when running B's main.
+
+Test 54 should return 1629 when running A's main.
