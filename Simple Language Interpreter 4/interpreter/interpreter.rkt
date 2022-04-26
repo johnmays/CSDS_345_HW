@@ -80,6 +80,7 @@
 (define instance_class cadr)
 
 ; Dot abstractions
+(define dot_keyword car)
 (define dot_instance_var cadr)
 (define dot_func_name caddr)
 (define dot_field_name caddr)
@@ -107,7 +108,7 @@
   (lambda (x)
     (and (list? x) (eq? 2 (length x)))))
 
-; Retrieves the value (or values of the box) of a given variable. The helper method get_ptr is used in cases with pass-by-reference.
+; Retrieves the value (or values of the box) of a given variable. The helper method get_raw is used in cases with pass-by-reference.
 (define get_var
   (lambda (var state)
     (cond
@@ -116,18 +117,20 @@
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
        (cond
-         {(not (box? (car (state_vals state)))) (get_var var (cons (list       ; Skip over any function closures, since we're only querying variables
-                                                                    (cdr (state_vars state))
-                                                                    (cdr (state_vals state))) (next_layer state)))}
-         {(void? (unbox (car (state_vals state)))) (error 'varerror "Variable not assigned: ~a" var)}
-         {else (unbox (car (state_vals state)))})]
+         {(instance_closure? (car (state_vals state))) (car (state_vals state))}
+         {(and (box? (car (state_vals state))) (void? (unbox (car (state_vals state))))) (error 'varerror "Variable not assigned: ~a" var)}
+         {(box? (car (state_vals state))) (unbox (car (state_vals state)))}
+         {else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))})]
       [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; If the variable is an instance variable, we use the reversing scheme to find the queried value instead.
 ; The helper method, get_idx, returns the zero-indexed position of the variable from the end of the variable list.
 (define get_instance_var
   (lambda (var instance_state)
-    (unbox (list-ref (state_vals instance_state) (get_idx var (state_vars instance_state))))))
+    (let ([res (list-ref (state_vals instance_state) (get_idx var (state_vars instance_state)))])
+      (if (box? res)
+          (unbox res)
+          res))))
 
 (define get_idx
   (lambda (var var_names)
@@ -154,10 +157,10 @@
     (cond
       [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
-      [(atom? (car state)) (get_raw var (cdr state))]
-      [(null? (state_vars state)) (get_raw var (pop_outer_layer state))]
+      [(atom? (car state)) (get_object_instance var (cdr state))]
+      [(null? (state_vars state)) (get_object_instance var (pop_outer_layer state))]
       [(and (eq? var (car (state_vars state))) (instance_closure? (car (state_vals state)))) (car (state_vals state))]
-      [else (get_raw var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+      [else (get_object_instance var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; Adds a variable (or reference) to the state and returns the state. The helper method add_raw is used whenever a reference is explicitly specified.
 ; If the variable already exists in the state, then raise an error.
@@ -165,8 +168,12 @@
   (lambda (var val state)
     (cond
       [(declared? var state) (error 'declerror "Variable already declared: ~a" var)]
-      [(null? (next_layer state)) (list (cons var (state_vars state)) (cons (box val) (state_vals state)))]
-      [else (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_outer_layer state))])))
+      [(null? (next_layer state)) (if (instance_closure? val)
+                                      (list (cons var (state_vars state)) (cons val (state_vals state)))
+                                      (list (cons var (state_vars state)) (cons (box val) (state_vals state))))]
+      [else (if (instance_closure? val)
+                (append (list (cons var (state_vars state)) (cons val (state_vals state))) (pop_outer_layer state))
+                (append (list (cons var (state_vars state)) (cons (box val) (state_vals state))) (pop_outer_layer state)))])))
 
 (define add_raw
   (lambda (var ptr state)
@@ -311,9 +318,14 @@
                                      (lambda (names vals) (return (append (state_vars (cclosure_instances currclosure)) names)
                                                                   (append vals (reverse (state_vals (cclosure_instances currclosure)))))))))))
 
+; Some miscellaneous state grabbers. This filters out the global state and the instance state, respectively.
 (define get_global_state
   (lambda (state)
     (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements
+
+(define get_instance_state
+  (lambda (state)
+    (drop-right (take-right state 4) 2)))
 
 ; Creates a tuple containing the following:
 ;   - formal parameters
@@ -372,7 +384,9 @@
   (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
-      [(and (list? expr) (eq? 'dot (car expr))) (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state))))]
+      [(and (list? expr) (eq? 'dot (car expr))) (if (eq? 'this (dot_instance_var expr))
+                                                    (return (get_instance_var (dot_field_name expr) (get_instance_state state)))
+                                                    (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state)))))]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
@@ -418,13 +432,12 @@
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
-                           (append (bind_params (fclosure_params fun_closure)
-                                                (actual_params stmt)
-                                                state
-                                                (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
-                                                throw
-                                                obj_instance)
-                                   (get_instance_field_values (iclosure_class obj_instance) state))
+                           (bind_params (fclosure_params fun_closure)
+                                        (actual_params stmt)
+                                        state
+                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                        throw
+                                        obj_instance)
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -455,7 +468,9 @@
 ; Returns the resulting state after a variable is assigned.
 (define M_assign
   (lambda (stmt state next throw classname)
-    (next (assign_var! (var_name stmt) (M_value (var_value stmt) state throw classname) state))))
+    (next (if (and (list? (var_name stmt)) (eq? 'dot (dot_keyword (var_name stmt))))
+              (assign_var! (dot_field_name (var_name stmt)) (M_value (var_value stmt) state throw classname) (get_instance_state state))
+              (assign_var! (var_name stmt) (M_value (var_value stmt) state throw classname) state)))))
 
 ; Returns a state that results after the execution of an if statement.
 (define M_if
@@ -590,21 +605,18 @@
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
-                           (append (bind_params (fclosure_params fun_closure)
-                                                (actual_params stmt)
-                                                state
-                                                (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
-                                                throw
-                                                obj_instance)
-                                   (get_instance_field_values (iclosure_class obj_instance) state))
+                           (bind_params (fclosure_params fun_closure)
+                                        (actual_params stmt)
+                                        state
+                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                        throw
+                                        obj_instance)
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex st) (throw ex state))
                            (iclosure_class fun_closure))))))
-
-
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
@@ -668,7 +680,7 @@
   (lambda (global_state classname)
     (call/cc (lambda (ret) (M_statementlist
                             (fclosure_body (get_func_closure 'main classname global_state))
-                            (create_function_layer 'main (append (cclosure_instances (get_class_closure classname global_state)) global_state))
+                            (create_function_layer 'main (append (get_instance_field_values classname global_state) global_state))
                             (lambda (ret) (cond
                                             [(number? ret) ret]
                                             [ret 'true]
