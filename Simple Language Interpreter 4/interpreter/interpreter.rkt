@@ -295,7 +295,7 @@
 (define make_instance_closure
   (lambda (stmt state)
     (if (class_exists? (instance_class stmt) (get_global_state state))
-        (list (class_name stmt) (get_instance_field_values (get_class_closure (class_name stmt))))
+        (list (class_name stmt) (get_instance_field_values (class_name stmt) (get_global_state state)))
         (error 'classerror "Class not found: ~a" (instance_class stmt)))))
 
 (define get_instance_field_values
@@ -411,7 +411,9 @@
 ; Evaluates the result of a function call as an expression.
 (define M_funexprcall
   (lambda (stmt state throw classname)
-    (let ([closure (get_func_closure (func_name stmt) classname state)])
+    (let [(closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
+                       (get_instance_function_closure (func_name stmt) state)
+                       (get_func_closure (func_name stmt) classname state)))]
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
@@ -439,7 +441,7 @@
 (define M_declaration
   (lambda (stmt state next throw classname)
     (cond
-      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (next (add_raw (var_name stmt) (make_instance_closure (instance_value stmt) state) state))]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw classname) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
@@ -598,18 +600,22 @@
       [(eq? (curr_param formal_params) 'this) (bind_params (next_ptr formal_params)
                                                            (next_param actual_params)
                                                            state
-                                                           (add_raw (curr_ptr formal_params) obj_instance))]
+                                                           func_state
+                                                           throw
+                                                           (add_raw (curr_ptr formal_params) obj_instance state))]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
                                                             (next_param actual_params)
                                                             state
+                                                            func_state
+                                                            throw
                                                             (add_raw (curr_ptr formal_params) (get_raw (curr_param actual_params) state) func_state)
                                                             throw))]
       [else (bind_params (next_param formal_params)
                          (next_param actual_params)
                          state
-                         (add_var (curr_param formal_params) (M_value (curr_param actual_params) state throw) func_state)
+                         (add_var (curr_param formal_params) (M_value (curr_param actual_params) state throw (car obj_instance)) func_state)
                          throw)])))
 
 ; Handles lists of statements, which are executed sequentially
