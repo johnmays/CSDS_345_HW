@@ -1,10 +1,12 @@
 class A {
-  function f() {
-    return 5;
-  }
+ function x(){
+return 1;
+}
+}
 
+class B extends A{
   static function main() {
-    var a = new A();
-    return a.f();
+    var z = super.x();
+    return z;
   }
 }

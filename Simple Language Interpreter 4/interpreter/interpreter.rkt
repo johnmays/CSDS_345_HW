@@ -356,7 +356,7 @@
   (lambda (param_list)
     (cond
       [(null? param_list) 0]
-      [(or (eq? (car param_list) '&) (eq? (car param_list) 'this)) (num_params (cdr param_list))]
+      [(or (eq? (car param_list) '&) (eq? (car param_list) 'this) (eq? (car param_list) 'super)) (num_params (cdr param_list))]
       [else (+ 1 (num_params (cdr param_list)))])))
     
 ; ==================================================================================================
@@ -409,12 +409,23 @@
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 ; Evaluates the result of a function call as an expression.
+
+(define make_dummy_instance
+  (lambda (classname)
+    (list 'new classname)))
+    
+
 (define M_funexprcall
   (lambda (stmt state throw classname)
     (let* ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
-                            (get_instance_function_closure (func_name stmt) state)
+                            (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                                (get_func_closure (dot_func_name (func_name stmt)) (cclosure_superclass (get_class_closure classname (get_global_state state))) (get_global_state state)) 
+                                (get_instance_function_closure (func_name stmt) state))
                             (get_func_closure (func_name stmt) classname state))]
-           [obj_instance (get_object_instance (dot_instance_var (func_name stmt)) state)])
+           
+           [obj_instance (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                               (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)
+                               (get_object_instance (dot_instance_var (func_name stmt)) state))])
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
@@ -553,8 +564,8 @@
 
 ; Retrieves the corresponding method from the given instance and executes the function call.
 (define get_instance_function_closure
-  (lambda (stmt state)
-    (get_func_closure (dot_func_name stmt)
+  (lambda (stmt state)        
+        (get_func_closure (dot_func_name stmt)
                       (iclosure_class (get_object_instance (dot_instance_var stmt) state))
                       state)))
 
@@ -583,10 +594,16 @@
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
   (lambda (stmt state next throw classname)
-    (let* ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
-                            (get_instance_function_closure (func_name stmt) state)
+    (let*
+        ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
+                            (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                                (get_func_closure (dot_func_name (func_name stmt)) (cclosure_superclass (get_class_closure classname (get_global_state state))) (get_global_state state)) 
+                                (get_instance_function_closure (func_name stmt) state))
                             (get_func_closure (func_name stmt) classname state))]
-           [obj_instance (get_object_instance (dot_instance_var (func_name stmt)) state)])
+           
+           [obj_instance (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                               (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)
+                               (get_object_instance (dot_instance_var (func_name stmt)) state))])
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
@@ -608,6 +625,12 @@
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
+
+(define generate_super_instance
+  (lambda (obj_instance state)
+    (let ([super_name (cclosure_superclass (get_class_closure (cadr obj_instance) (get_global_state state)))])
+      (list 'new super_name))))
+
 (define bind_params
   (lambda (formal_params actual_params state func_state throw obj_instance)
     (cond
@@ -618,6 +641,12 @@
                                                            (add_raw (curr_param formal_params) obj_instance state)
                                                            throw
                                                            obj_instance)]
+      [(eq? (curr_param formal_params) 'super) (bind_params (next_param formal_params)
+                                                            actual_params
+                                                            state
+                                                            (add_raw (curr_param formal_params) obj_instance state)
+                                                            throw
+                                                            obj_instance)]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
