@@ -289,11 +289,19 @@
 
 (define get_instance_field_values
   (lambda (class state)
-    (if (void? (cclosure_superclass class))
-      (cclosure_instances class)
-      (merge_instance_values (get_instance_field_values (get_class_closure (cclosure_superclass class)) (car (cclosure_instances class)) (cadr (cclosure_instances class))))
-      )))
-      
+    (get_instance_field_helper class (get_global_state state) (lambda (v1 v2) (list v1 v2)))))
+
+(define get_instance_field_helper
+  (lambda (class global_state return)
+    (let ([currclosure (get_class_closure class global_state)])
+      (if (void? (cclosure_superclass currclosure))
+          (return (state_vars (cclosure_instances currclosure)) (reverse (state_vals (cclosure_instances currclosure))))
+          (get_instance_field_helper (cclosure_superclass currclosure)
+                                     (global_state)
+                                     (lambda (names vals) (return (append (state_vars (cclosure_instances currclosure)) names)
+                                                                  (append vals (reverse (state_vals (cclosure_instances currclosure)))))))))))
+
+
 (define get_global_state
   (lambda (state)
     (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements

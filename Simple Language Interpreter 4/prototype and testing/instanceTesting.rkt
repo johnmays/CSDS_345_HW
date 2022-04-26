@@ -18,6 +18,8 @@
 (define a_fields '((a1 a2 a3) (1 2 3)))
 (define b_names '(b1 a2 b3))
 (define b_vals '(4 5 6))
+(define c_names '(b1 c2 a3))
+(define c_vals '(7 8 9))
 
 ; Again, suppose class B extends class A...
 ; From the advice given in class, the instance fields for b will be given by (b1 a2 b3 a1 a2 a3) - note the duplicate a2
@@ -25,7 +27,7 @@
 ; a1 = 1, a2 = 2, a3 = 3, and so on...
 (define merge_instance_values
   (λ (af bn bv)
-    (list (append bn (car af)) (reverse (append bv (cadr af))))))
+    (list (append bn (car af)) (append (cadr af) (reverse bv)))))
 
 ; Querying b.a1 should yield the value of 5
 ; The state will still look like ((var names) (var vals)), except the vals are reversed. This is called whenever we
