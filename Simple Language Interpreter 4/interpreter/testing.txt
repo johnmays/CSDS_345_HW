@@ -1,4 +1,8 @@
-class B{
+class A{
+ var x = 5;
+}
+
+class B extends A{
  var x = 1;
  var y = 2;
   static function main() {
