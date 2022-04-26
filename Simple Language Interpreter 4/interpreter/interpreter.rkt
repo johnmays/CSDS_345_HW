@@ -110,7 +110,7 @@
 (define get_var
   (lambda (var state)
     (cond
-      [(eq? 2 (length state)) (get_instance_var var (drop-right state 2))]     ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
+      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]     ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
       [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
@@ -282,7 +282,7 @@
 (define get_class_closure
   (lambda (name global_state)
     (cond
-      [(equal? global_state empty_state) (error "Class not found: ~a" name)]
+      [(equal? global_state empty_state) (error 'classerror "Class not found: ~a" name)]
       [(eq? name (car (state_vars global_state))) (car (state_vals global_state))]
       [else (get_class_closure name (list (cdr (state_vars global_state))
                                           (cdr (state_vals global_state))))])))
@@ -371,12 +371,13 @@
   (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
+     ; [(and (list? expr) (eq? 'dot (car expr))) (get_instance_var 
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
       [(eq? (pre_op expr) '+) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (+ v1 v2))) throw classname)) throw classname)]
       [(and (eq? (pre_op expr) '-) (not (null? (cddr expr))))                                                  
-                              (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw classname)) throw classname)]                                     
+       (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (- v1 v2))) throw classname)) throw classname)]                                     
       [(eq? (pre_op expr) '-) (M_value_helper (l_operand expr) state (lambda (v) (return (- 0 v))) throw classname)]
       [(eq? (pre_op expr) '*) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (* v1 v2))) throw classname)) throw classname)]
       [(eq? (pre_op expr) '/) (M_value_helper (l_operand expr) state (lambda (v1) (M_value_helper (r_operand expr) state (lambda (v2) (return (quotient v1 v2))) throw classname)) throw classname)]
@@ -409,24 +410,26 @@
 ; Evaluates the result of a function call as an expression.
 (define M_funexprcall
   (lambda (stmt state throw classname)
-    (let [(closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
-                       (get_instance_function_closure (func_name stmt) state)
-                       (get_func_closure (func_name stmt) classname state)))]
-      (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
-          (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure)
-                                        (actual_params stmt)
-                                        state
-                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope closure) state))
-                                        throw
-                                        (get_object_instance (dot_instance_var (func_name stmt)) state))
+    (let* ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
+                            (get_instance_function_closure (func_name stmt) state)
+                            (get_func_closure (func_name stmt) classname state))]
+           [obj_instance (get_object_instance (dot_instance_var (func_name stmt)) state)])
+      (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
+          (M_statementlist (fclosure_body fun_closure)
+                           (append (bind_params (fclosure_params fun_closure)
+                                                (actual_params stmt)
+                                                state
+                                                (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                                throw
+                                                obj_instance)
+                                   (get_instance_field_values (iclosure_class obj_instance) state))
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex st) (throw ex state))
-                           (iclosure_class closure))))))
+                           (iclosure_class fun_closure))))))
 
 
 ; ==================================================================================================
@@ -570,7 +573,6 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw classname) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw classname)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw classname)]
-      ;[(eq? (curr_stmt stmt) 'dot) (M_dot 
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]                           ; <-- Everything below here is called during the initial binding stage
       [(eq? (curr_stmt stmt) 'static-function) (M_staticfundef stmt state next)]
       [(eq? (curr_stmt stmt) 'class) (M_classdef stmt state return next break continue throw)]
@@ -580,24 +582,28 @@
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
   (lambda (stmt state next throw classname)
-    (let ([closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
-                       (get_instance_function_closure (func_name stmt) state)
-                       (get_func_closure (func_name stmt) classname state))])
-      (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
-          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
-          (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure)
-                                        (actual_params stmt)
-                                        state
-                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope closure) state))
-                                        throw
-                                        (get_object_instance (dot_instance_var (func_name stmt)) state))
+    (let* ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
+                            (get_instance_function_closure (func_name stmt) state)
+                            (get_func_closure (func_name stmt) classname state))]
+           [obj_instance (get_object_instance (dot_instance_var (func_name stmt)) state)])
+      (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
+          (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
+          (M_statementlist (fclosure_body fun_closure)
+                           (append (bind_params (fclosure_params fun_closure)
+                                                (actual_params stmt)
+                                                state
+                                                (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                                throw
+                                                obj_instance)
+                                   (get_instance_field_values (iclosure_class obj_instance) state))
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex st) (throw ex state))
-                           (iclosure_class closure))))))
+                           (iclosure_class fun_closure))))))
+
+
 
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
@@ -642,7 +648,7 @@
 ; Our main function.
 (define interpret
   (lambda (filename classname)
-      (execute_main (global_state_bindings (parser filename)) classname)))
+    (execute_main (global_state_bindings (parser filename)) classname)))
 
 ; Our initial pass through the file. This will populate the state with the class bindings and their original 
 (define global_state_bindings
@@ -661,7 +667,7 @@
   (lambda (global_state classname)
     (call/cc (lambda (ret) (M_statementlist
                             (fclosure_body (get_func_closure 'main classname global_state))
-                            (create_function_layer 'main global_state)
+                            (create_function_layer 'main (append (cclosure_instances (get_class_closure classname global_state)) global_state))
                             (lambda (ret) (cond
                                             [(number? ret) ret]
                                             [ret 'true]
