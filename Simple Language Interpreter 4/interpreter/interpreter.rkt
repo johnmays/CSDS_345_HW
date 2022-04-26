@@ -53,7 +53,7 @@
 (define fclosure_scope caddr)
 
 ; Class closure abstractions
-(define cclosure_superclasses car)
+(define cclosure_superclass car)
 (define cclosure_funcs cadr)
 (define cclosure_instances caddr)
 (define func_list caadr)
@@ -284,9 +284,16 @@
 (define make_instance_closure
   (lambda (stmt state)
     (if (class_exists? (instance_class stmt) (get_global_state state))
-        (list (class_name stmt) (class_fields (get_var (class_name stmt) (get_global_state state))))
+        (list (class_name stmt) (get_instance_field_values (get_class_closure (class_name stmt))))
         (error 'classerror "Class not found: ~a" (instance_class stmt)))))
 
+(define get_instance_field_values
+  (lambda (class state)
+    (if (void? (cclosure_superclass class))
+      (cclosure_instances class)
+      (merge_instance_values (get_instance_field_values (get_class_closure (cclosure_superclass class)) (car (cclosure_instances class)) (cadr (cclosure_instances class))))
+      )))
+      
 (define get_global_state
   (lambda (state)
     (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements
