@@ -284,7 +284,7 @@
 (define make_instance_closure
   (lambda (stmt state)
     (if (class_exists? (instance_class stmt) (get_global_state state))
-        (list (class_name stmt) (get_instance_field_values (get_class_closure (class_name stmt))))
+        (list (class_name stmt) (get_instance_field_values (class_name stmt) state))
         (error 'classerror "Class not found: ~a" (instance_class stmt)))))
 
 (define get_instance_field_values
@@ -297,7 +297,7 @@
       (if (void? (cclosure_superclass currclosure))
           (return (state_vars (cclosure_instances currclosure)) (reverse (state_vals (cclosure_instances currclosure))))
           (get_instance_field_helper (cclosure_superclass currclosure)
-                                     (global_state)
+                                     global_state
                                      (lambda (names vals) (return (append (state_vars (cclosure_instances currclosure)) names)
                                                                   (append vals (reverse (state_vals (cclosure_instances currclosure)))))))))))
 
@@ -421,7 +421,7 @@
 (define M_declaration
   (lambda (stmt state next throw classname)
     (cond
-      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_raw (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw classname) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
