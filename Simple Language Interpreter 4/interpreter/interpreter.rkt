@@ -82,6 +82,7 @@
 ; Dot abstractions
 (define dot_instance_var cadr)
 (define dot_func_name caddr)
+(define dot_field_name caddr)
 
 ; Empty state
 (define empty_state '(()()))
@@ -371,7 +372,7 @@
   (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
-     ; [(and (list? expr) (eq? 'dot (car expr))) (get_instance_var 
+      [(and (list? expr) (eq? 'dot (car expr))) (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state))))]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
