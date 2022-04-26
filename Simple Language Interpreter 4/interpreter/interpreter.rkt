@@ -339,7 +339,7 @@
   (lambda (param_list)
     (cond
       [(null? param_list) 0]
-      [(eq? (car param_list) '&) (num_params (cdr param_list))]
+      [(or (eq? (car param_list) '&) (eq? (car param_list) 'this)) (num_params (cdr param_list))]
       [else (+ 1 (num_params (cdr param_list)))])))
     
 ; ==================================================================================================
@@ -393,11 +393,11 @@
 ; Evaluates the result of a function call as an expression.
 (define M_funexprcall
   (lambda (stmt state throw classname)
-    (let ([closure (get_func_closure (func_name stmt) state)])
+    (let ([closure (get_func_closure (func_name stmt) classname state)])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
+                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw classname)
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -509,7 +509,13 @@
                              classname))])))
 
 ; Creates a binding for function definitions.
+; For non-static function definitions, the keyword "this" is bound to the current class closure.
+; Otherwise, "this" will be omitted.
 (define M_fundef
+  (lambda (stmt state next)
+    (next (add_func (func_name stmt) (cons 'this (func_params stmt)) (func_body stmt) state))))
+
+(define M_staticfundef
   (lambda (stmt state next)
     (next (add_func (func_name stmt) (func_params stmt) (func_body stmt) state))))
 
@@ -534,7 +540,7 @@
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw classname) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw classname)]
       [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'static-function) (M_fundef stmt state next)]
+      [(eq? (curr_stmt stmt) 'static-function) (M_staticfundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw classname)]
       [(eq? (curr_stmt stmt) 'class) (M_classdef stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
@@ -543,11 +549,11 @@
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
   (lambda (stmt state next throw classname)
-    (let ([closure (get_func_closure (func_name stmt) state)])
+    (let ([closure (get_func_closure (func_name stmt) classname state)])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
+                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw classname)
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -558,9 +564,13 @@
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
 (define bind_params
-  (lambda (formal_params actual_params state func_state throw)
+  (lambda (formal_params actual_params state func_state throw classname)
     (cond
       [(null? formal_params) func_state]
+      [(eq? (curr_param formal_params) 'this) (bind_params (next_ptr formal_params)
+                                                           (next_param actual_params)
+                                                           state
+                                                           (add_raw (curr_ptr formal_params) (get_class_closure classname (get_global_state state))))]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
