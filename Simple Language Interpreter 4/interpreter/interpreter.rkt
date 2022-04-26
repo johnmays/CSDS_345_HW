@@ -372,7 +372,10 @@
   (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
-      [(and (list? expr) (eq? 'dot (car expr))) (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state))))]
+      [(and (list? expr) (eq? 'dot (car expr)))
+       (if (eq? (dot_instance_var expr) 'super)
+           (return (get_instance_var (dot_field_name expr) (iclosure_fields (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state) state) state)) 
+           (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state)))))]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
