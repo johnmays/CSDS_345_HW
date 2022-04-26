@@ -155,6 +155,7 @@
 (define get_object_instance
   (lambda (var state)
     (cond
+      [(and (list? var) (eq? (car var) 'new)) (make_instance_closure var state)]
       [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
       [(atom? (car state)) (get_object_instance var (cdr state))]
@@ -588,7 +589,7 @@
   (lambda (stmt state return next break continue throw)
     (next (add_class stmt state return (lambda (s) s) break continue throw))))
 
-; Retrieves the corresponding method from the given instance and executes the function call.
+; Retrieves the corresponding method from the given instance and executes the function call
 (define get_instance_function_closure
   (lambda (stmt state)        
     (get_func_closure (dot_func_name stmt)
@@ -644,10 +645,9 @@
                            (lambda (cont) (error 'conterror "Continue outside of loop"))
                            (lambda (ex st) (throw ex state))
                            (iclosure_class fun_closure))))))
-
+          
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
-
 (define generate_super_instance
   (lambda (obj_instance state)
     (let ([super_name (cclosure_superclass (get_class_closure (cadr obj_instance) (get_global_state state)))])
@@ -724,16 +724,3 @@
                             (lambda (cont) (error 'conterror "Invalid continue location."))
                             (lambda (ex val) (error 'throwerror "Uncaught exception thrown."))
                             classname)))))
-
-; Testing state
-; '((g) (#&#t) (f e d) (#&#f #&#<void> #&3) (c b a) (#&2 #&1 #&#t))
-;(define test_state
-;  (add_var 'g #t
-;           (create_block_layer
-;            (add_var 'f #f
-;                     (add_var 'e (void)
-;                              (add_var 'd 3
-;                                       (create_block_layer
-;                                        (add_var 'c 2
-;                                                 (add_var 'b 1
-;                                                          (add_var 'a #t empty_state))))))))))
