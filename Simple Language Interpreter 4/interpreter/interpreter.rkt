@@ -253,11 +253,6 @@
                                                     (M_statementlist (class_body stmt) empty_state return next break continue throw)
                                                     (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
 
-; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
-(define find_scope
-  (lambda (orig_state given_state)
-    (take-right given_state (length orig_state))))
-
 ; Creates a tuple containing the following:
 ;   - superclass
 ;   - methods
@@ -312,11 +307,23 @@
   (lambda (class global_state return)
     (let ([currclosure (get_class_closure class global_state)])
       (if (void? (cclosure_superclass currclosure))
-          (return (state_vars (cclosure_instances currclosure)) (reverse (state_vals (cclosure_instances currclosure))))
+          (return (state_vars (cclosure_instances currclosure)) (deep_copy (reverse (state_vals (cclosure_instances currclosure)))))
           (get_instance_field_helper (cclosure_superclass currclosure)
-                                     (global_state)
+                                     global_state
                                      (lambda (names vals) (return (append (state_vars (cclosure_instances currclosure)) names)
-                                                                  (append vals (reverse (state_vals (cclosure_instances currclosure)))))))))))
+                                                                  (deep_copy (append vals (reverse (state_vals (cclosure_instances currclosure))))))))))))
+
+; Utility function to get the deep copy of a list.
+(define deep_copy
+  (lambda (lis)
+    (deep_copy_cps lis (lambda (v) v))))
+
+(define deep_copy_cps
+  (lambda (lis return)
+    (cond
+      [(null? lis) (return null)]
+      [(box? (car lis)) (deep_copy_cps (cdr lis) (lambda (v) (return (cons (box (unbox (car lis))) v))))]
+      [else (deep_copy_cps (cdr lis) (lambda (v) (return (cons (car lis) v))))])))
 
 ; Some miscellaneous state grabbers. This filters out the global state and the instance state, respectively.
 (define get_global_state
@@ -336,6 +343,11 @@
   (lambda (param_list body state)
     (list param_list body
           (lambda (st) (find_scope state st)))))
+
+; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
+(define find_scope
+  (lambda (orig_state given_state)
+    (take-right given_state (length orig_state))))
 
 ; A function to retrieve a given function's closure.
 (define get_func_closure
@@ -384,13 +396,11 @@
   (lambda (expr state return throw classname)
     (cond
       [(number? expr) (return expr)]
-      [(and (list? expr) (eq? 'dot (car expr))) (if (eq? 'this (dot_instance_var expr))
-                                                    (return (get_instance_var (dot_field_name expr) (get_instance_state state)))
-                                                    (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state)))))]
-      [(and (list? expr) (eq? 'dot (car expr)))
-       (if (eq? (dot_instance_var expr) 'super)
-           (return (get_instance_var (dot_field_name expr) (iclosure_fields (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)))) 
-           (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state)))))]
+      [(and (list? expr) (eq? 'dot (car expr))) (cond
+                                                  {(eq? 'this (dot_instance_var expr)) (return (get_instance_var (dot_field_name expr) (get_instance_state state)))}
+                                                  {(eq? 'super (dot_instance_var expr)) (return (get_instance_var (dot_field_name expr)
+                                                                                                                  (iclosure_fields (make_instance_closure (generate_super_instance (make_dummy_instance classname) state) state))))}
+                                                  {else (return (get_instance_var (dot_field_name expr) (iclosure_fields (get_object_instance (dot_instance_var expr) state))))})]
       [(eq? expr 'true) (return #t)]
       [(eq? expr 'false) (return #f)]
       [(atom? expr) (return (get_var expr state))]
@@ -427,30 +437,23 @@
       [else (error 'badop "Bad operator: ~a" expr)])))
 
 ; Evaluates the result of a function call as an expression.
-
-(define make_dummy_instance
-  (lambda (classname)
-    (list 'new classname)))
-    
-
 (define M_funexprcall
   (lambda (stmt state throw classname)
     (let* ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
                             (if (eq? (dot_instance_var (func_name stmt)) 'super)
                                 (get_func_closure (dot_func_name (func_name stmt)) (cclosure_superclass (get_class_closure classname (get_global_state state))) (get_global_state state)) 
-                                (get_instance_function_closure (func_name stmt) state))
+                                (get_instance_function_closure (func_name stmt) state))  
                             (get_func_closure (func_name stmt) classname state))]
-           
            [obj_instance (if (eq? (dot_instance_var (func_name stmt)) 'super)
-                               (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)
-                               (get_object_instance (dot_instance_var (func_name stmt)) state))])
+                             (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)
+                             (get_object_instance (dot_instance_var (func_name stmt)) state))])
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
                            (bind_params (fclosure_params fun_closure)
                                         (actual_params stmt)
                                         state
-                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                        (create_function_layer (dot_func_name (func_name stmt)) (append (iclosure_fields obj_instance) ((fclosure_scope fun_closure) state)))
                                         throw
                                         obj_instance)
                            (lambda (ret) ret)
@@ -460,6 +463,10 @@
                            (lambda (ex st) (throw ex state))
                            (iclosure_class fun_closure))))))
 
+; Creates a dummy instance for the "super" parse.
+(define make_dummy_instance
+  (lambda (classname)
+    (list 'new classname)))
 
 ; ==================================================================================================
 ;                                         STATE FUNCTIONS
@@ -584,7 +591,7 @@
 ; Retrieves the corresponding method from the given instance and executes the function call.
 (define get_instance_function_closure
   (lambda (stmt state)        
-        (get_func_closure (dot_func_name stmt)
+    (get_func_closure (dot_func_name stmt)
                       (iclosure_class (get_object_instance (dot_instance_var stmt) state))
                       state)))
 
@@ -615,21 +622,20 @@
   (lambda (stmt state next throw classname)
     (let*
         ([fun_closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
-                            (if (eq? (dot_instance_var (func_name stmt)) 'super)
-                                (get_func_closure (dot_func_name (func_name stmt)) (cclosure_superclass (get_class_closure classname (get_global_state state))) (get_global_state state)) 
-                                (get_instance_function_closure (func_name stmt) state))
-                            (get_func_closure (func_name stmt) classname state))]
-           
-           [obj_instance (if (eq? (dot_instance_var (func_name stmt)) 'super)
-                               (make_instance_closure (generate_super_instance (make_dummy_instance classname)  state) state)
-                               (get_object_instance (dot_instance_var (func_name stmt)) state))])
+                          (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                              (get_func_closure (dot_func_name (func_name stmt)) (cclosure_superclass (get_class_closure classname (get_global_state state))) (get_global_state state)) 
+                              (get_instance_function_closure (func_name stmt) state))
+                          (get_func_closure (func_name stmt) classname state))]
+         [obj_instance (if (eq? (dot_instance_var (func_name stmt)) 'super)
+                           (make_instance_closure (generate_super_instance (make_dummy_instance classname) state) state)
+                           (get_object_instance (dot_instance_var (func_name stmt)) state))])
       (if (not (eq? (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params fun_closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body fun_closure)
                            (bind_params (fclosure_params fun_closure)
                                         (actual_params stmt)
                                         state
-                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope fun_closure) state))
+                                        (create_function_layer (dot_func_name (func_name stmt)) (append (iclosure_fields obj_instance) ((fclosure_scope fun_closure) state)))
                                         throw
                                         obj_instance)
                            (lambda (ret) (next state))
@@ -651,18 +657,13 @@
   (lambda (formal_params actual_params state func_state throw obj_instance)
     (cond
       [(null? formal_params) func_state]
-      [(eq? (curr_param formal_params) 'this) (bind_params (next_param formal_params)
-                                                           actual_params
-                                                           state
-                                                           (add_raw (curr_param formal_params) obj_instance state)
-                                                           throw
-                                                           obj_instance)]
-      [(eq? (curr_param formal_params) 'super) (bind_params (next_param formal_params)
-                                                            actual_params
-                                                            state
-                                                            (add_raw (curr_param formal_params) obj_instance state)
-                                                            throw
-                                                            obj_instance)]
+      [(or (eq? (curr_param formal_params) 'this)
+           (eq? (curr_param formal_params) 'super)) (bind_params (next_param formal_params)
+                                                                 actual_params
+                                                                 state
+                                                                 (add_raw (curr_param formal_params) obj_instance func_state)
+                                                                 throw
+                                                                 obj_instance)]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
