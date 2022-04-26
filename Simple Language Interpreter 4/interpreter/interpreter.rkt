@@ -110,7 +110,7 @@
 (define get_var
   (lambda (var state)
     (cond
-      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]     ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
+      [(eq? 2 (length state)) (get_instance_var var (drop-right state 2))]     ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
       [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
@@ -120,9 +120,7 @@
                                                                     (cdr (state_vals state))) (next_layer state)))}
          {(void? (unbox (car (state_vals state)))) (error 'varerror "Variable not assigned: ~a" var)}
          {else (unbox (car (state_vals state)))})]
-      [else (get_var var (cons (list
-                                (cdr (state_vars state))
-                                (cdr (state_vals state))) (next_layer state)))])))
+      [else (get_var var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; If the variable is an instance variable, we use the reversing scheme to find the queried value instead.
 ; The helper method, get_idx, returns the zero-indexed position of the variable from the end of the variable list.
@@ -417,7 +415,12 @@
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw classname)
+                           (bind_params (fclosure_params closure)
+                                        (actual_params stmt)
+                                        state
+                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope closure) state))
+                                        throw
+                                        (get_object_instance (dot_instance_var (func_name stmt)) state))
                            (lambda (ret) ret)
                            (lambda (nx) (error 'nexterror "Missing return value"))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -577,13 +580,18 @@
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
   (lambda (stmt state next throw classname)
-    (let ([closure (if (list? func_name stmt)   ; <-- This indicates that the "function name" is a dot statement
+    (let ([closure (if (list? (func_name stmt))   ; <-- This indicates that the "function name" is a dot statement
                        (get_instance_function_closure (func_name stmt) state)
                        (get_func_closure (func_name stmt) classname state))])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
+                           (bind_params (fclosure_params closure)
+                                        (actual_params stmt)
+                                        state
+                                        (create_function_layer (dot_func_name (func_name stmt)) ((fclosure_scope closure) state))
+                                        throw
+                                        (get_object_instance (dot_instance_var (func_name stmt)) state))
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -597,26 +605,26 @@
   (lambda (formal_params actual_params state func_state throw obj_instance)
     (cond
       [(null? formal_params) func_state]
-      [(eq? (curr_param formal_params) 'this) (bind_params (next_ptr formal_params)
-                                                           (next_param actual_params)
+      [(eq? (curr_param formal_params) 'this) (bind_params (next_param formal_params)
+                                                           actual_params
                                                            state
-                                                           func_state
+                                                           (add_raw (curr_param formal_params) obj_instance state)
                                                            throw
-                                                           (add_raw (curr_ptr formal_params) obj_instance state))]
+                                                           obj_instance)]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
                                                             (next_param actual_params)
                                                             state
-                                                            func_state
-                                                            throw
                                                             (add_raw (curr_ptr formal_params) (get_raw (curr_param actual_params) state) func_state)
-                                                            throw))]
+                                                            throw
+                                                            obj_instance))]
       [else (bind_params (next_param formal_params)
                          (next_param actual_params)
                          state
                          (add_var (curr_param formal_params) (M_value (curr_param actual_params) state throw (car obj_instance)) func_state)
-                         throw)])))
+                         throw
+                         obj_instance)])))
 
 ; Handles lists of statements, which are executed sequentially
 ; This is where we make our 'next' continuation, which refers to the next line of code to be executed
@@ -666,13 +674,13 @@
 
 ; Testing state
 ; '((g) (#&#t) (f e d) (#&#f #&#<void> #&3) (c b a) (#&2 #&1 #&#t))
-(define test_state
-  (add_var 'g #t
-           (create_block_layer
-            (add_var 'f #f
-                     (add_var 'e (void)
-                              (add_var 'd 3
-                                       (create_block_layer
-                                        (add_var 'c 2
-                                                 (add_var 'b 1
-                                                          (add_var 'a #t empty_state))))))))))
+;(define test_state
+;  (add_var 'g #t
+;           (create_block_layer
+;            (add_var 'f #f
+;                     (add_var 'e (void)
+;                              (add_var 'd 3
+;                                       (create_block_layer
+;                                        (add_var 'c 2
+;                                                 (add_var 'b 1
+;                                                          (add_var 'a #t empty_state))))))))))
