@@ -249,7 +249,7 @@
 (define make_class_closure
   (lambda (superclass class_body classname)
     (if (null? superclass) 
-        (list superclass
+        (list (void)
               (filter_methods (state_vars class_body) (state_vals class_body) classname)
               (filter_instance_fields (state_vars class_body) (state_vals class_body)))
         (list (cadr superclass) (filter_methods (state_vars class_body) (state_vals class_body) classname)
@@ -413,7 +413,7 @@
 (define M_declaration
   (lambda (stmt state next throw classname)
     (cond
-      [(eq? (new_keyword stmt) 'new) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw classname) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 

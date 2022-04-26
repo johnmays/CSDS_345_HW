@@ -1,4 +1,6 @@
 class B{
+ var x = 1;
+ var y = 2;
   static function main() {
     var b = new B();
     return b;
