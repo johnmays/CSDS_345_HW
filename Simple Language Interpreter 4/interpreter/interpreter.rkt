@@ -79,6 +79,10 @@
 (define new_keyword caaddr)
 (define instance_class cadr)
 
+; Dot abstractions
+(define dot_instance_var cadr)
+(define dot_func_name caddr)
+
 ; Empty state
 (define empty_state '(()()))
 
@@ -97,11 +101,16 @@
   (lambda (x)
     (not (or (pair? x) (null? x)))))
 
+; Checks if an element is an instance closure
+(define instance_closure?
+  (lambda (x)
+    (and (list? x) (eq? 2 (length x)))))
+
 ; Retrieves the value (or values of the box) of a given variable. The helper method get_ptr is used in cases with pass-by-reference.
 (define get_var
   (lambda (var state)
     (cond
-      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]           ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
+      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]     ; We filter out the class names, those are irrelevant. Here we jump into the instance vars instead
       [(atom? (car state)) (get_var var (cdr state))]                          ; <-- This is to account for function names in the state
       [(null? (state_vars state)) (get_var var (pop_outer_layer state))]
       [(eq? var (car (state_vars state)))
@@ -133,10 +142,22 @@
 (define get_raw
   (lambda (var state)
     (cond
+      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]
       [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
       [(atom? (car state)) (get_raw var (cdr state))]
       [(null? (state_vars state)) (get_raw var (pop_outer_layer state))]
       [(and (eq? var (car (state_vars state))) (box? (car (state_vals state)))) (car (state_vals state))]
+      [else (get_raw var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
+
+; Gets the instance of the requested object.
+(define get_object_instance
+  (lambda (var state)
+    (cond
+      [(eq? 4 (length state)) (get_instance_var var (drop-right state 2))]
+      [(equal? state empty_state) (error 'varerror "Variable not declared: ~a" var)]
+      [(atom? (car state)) (get_raw var (cdr state))]
+      [(null? (state_vars state)) (get_raw var (pop_outer_layer state))]
+      [(and (eq? var (car (state_vars state))) (instance_closure? (car (state_vals state)))) (car (state_vals state))]
       [else (get_raw var (cons (cdr (state_vars state)) (cons (cdr (state_vals state)) (next_layer state))))])))
 
 ; Adds a variable (or reference) to the state and returns the state. The helper method add_raw is used whenever a reference is explicitly specified.
@@ -226,16 +247,6 @@
                                                     (M_statementlist (class_body stmt) empty_state return next break continue throw)
                                                     (class_name stmt)) (state_vals state))) (pop_outer_layer state))])))
 
-; Creates a tuple containing the following:
-;   - formal parameters
-;   - function body
-;   - a function that takes in the current state and returns the portion of state that's visible
-;   - a function that returns the class the method is defined in
-(define make_function_closure
-  (lambda (param_list body state)
-    (list param_list body
-          (lambda (st) (find_scope state st)))))
-
 ; A helper method for the above. We only consider variables and functions on the same (or outer) lexical layers to be in scope.
 (define find_scope
   (lambda (orig_state given_state)
@@ -284,7 +295,7 @@
 (define make_instance_closure
   (lambda (stmt state)
     (if (class_exists? (instance_class stmt) (get_global_state state))
-        (list (class_name stmt) (get_instance_field_values (class_name stmt) state))
+        (list (class_name stmt) (get_instance_field_values (get_class_closure (class_name stmt))))
         (error 'classerror "Class not found: ~a" (instance_class stmt)))))
 
 (define get_instance_field_values
@@ -297,24 +308,31 @@
       (if (void? (cclosure_superclass currclosure))
           (return (state_vars (cclosure_instances currclosure)) (reverse (state_vals (cclosure_instances currclosure))))
           (get_instance_field_helper (cclosure_superclass currclosure)
-                                     global_state
+                                     (global_state)
                                      (lambda (names vals) (return (append (state_vars (cclosure_instances currclosure)) names)
                                                                   (append vals (reverse (state_vals (cclosure_instances currclosure)))))))))))
-
 
 (define get_global_state
   (lambda (state)
     (take-right state 2)))  ; <-- The global state is only occupied by the rightmost two elements
 
+; Creates a tuple containing the following:
+;   - formal parameters
+;   - function body
+;   - a function that takes in the current state and returns the portion of state that's visible
+;   - a function that returns the class the method is defined in
+(define make_function_closure
+  (lambda (param_list body state)
+    (list param_list body
+          (lambda (st) (find_scope state st)))))
+
 ; A function to retrieve a given function's closure.
-; This breaks into two cases: first of all, if the case isn't 
 (define get_func_closure
   (lambda (name classname state)
     (if (eq? classname 'this)
         (search_env name classname state)
         (search_global name (cclosure_funcs (get_class_closure classname (get_global_state state)))))))
 
-; NOTE: the semantics of "this" are still kinda weird! get_func_closure will not work well yet.
 (define search_env
   (lambda (name classname state)
     (cond
@@ -421,7 +439,7 @@
 (define M_declaration
   (lambda (stmt state next throw classname)
     (cond
-      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_raw (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
+      [(and (list? (caddr stmt)) (eq? (new_keyword stmt) 'new)) (add_var (var_name stmt) (make_instance_closure (instance_value stmt) state) state)]
       [(not (null? (cddr stmt))) (next (add_var (var_name stmt) (M_value (var_value stmt) state throw classname) state))]
       [else (next (add_var (var_name stmt) (void) state))])))
 
@@ -524,6 +542,13 @@
   (lambda (stmt state return next break continue throw)
     (next (add_class stmt state return (lambda (s) s) break continue throw))))
 
+; Retrieves the corresponding method from the given instance and executes the function call.
+(define get_instance_function_closure
+  (lambda (stmt state)
+    (get_func_closure (dot_func_name stmt)
+                      (iclosure_class (get_object_instance (dot_instance_var stmt) state))
+                      state)))
+
 ; Returns the resulting state after a single statement.
 (define M_state
   (lambda (stmt state return next break continue throw classname)
@@ -539,9 +564,10 @@
       [(eq? (curr_stmt stmt) 'try) (M_try stmt state return next break continue throw classname)]
       [(eq? (curr_stmt stmt) 'throw) (throw (M_value (throw_block stmt) state throw classname) state)]
       [(eq? (curr_stmt stmt) 'finally) (M_state (next_stmt stmt) (create_block_layer state) return next break continue throw classname)]
-      [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]
-      [(eq? (curr_stmt stmt) 'static-function) (M_staticfundef stmt state next)]
       [(eq? (curr_stmt stmt) 'funcall) (M_funstmtcall stmt state next throw classname)]
+      ;[(eq? (curr_stmt stmt) 'dot) (M_dot 
+      [(eq? (curr_stmt stmt) 'function) (M_fundef stmt state next)]                           ; <-- Everything below here is called during the initial binding stage
+      [(eq? (curr_stmt stmt) 'static-function) (M_staticfundef stmt state next)]
       [(eq? (curr_stmt stmt) 'class) (M_classdef stmt state return next break continue throw)]
       [else (error 'badstmt "Invalid statement: ~a" stmt)])))
 
@@ -549,11 +575,13 @@
 ; We handle parameter binding via a helper function.
 (define M_funstmtcall
   (lambda (stmt state next throw classname)
-    (let ([closure (get_func_closure (func_name stmt) classname state)])
+    (let ([closure (if (list? func_name stmt)   ; <-- This indicates that the "function name" is a dot statement
+                       (get_instance_function_closure (func_name stmt) state)
+                       (get_func_closure (func_name stmt) classname state))])
       (if (not (eq? (num_params (fclosure_params closure)) (num_params (actual_params stmt))))
           (error 'paramerror "Parameter mismatch (expected ~a argument(s), got ~a)" (num_params (fclosure_params closure)) (num_params (actual_params stmt)))
           (M_statementlist (fclosure_body closure)
-                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw classname)
+                           (bind_params (fclosure_params closure) (actual_params stmt) state (create_function_layer (func_name stmt) ((fclosure_scope closure) state)) throw)
                            (lambda (ret) (next state))
                            (lambda (nex) (next state))
                            (lambda (break) (error 'breakerror "Break outside of loop"))
@@ -564,13 +592,13 @@
 ; Takes a state and binds the formal parameters to the actual parameters inside
 ; Formal parameters marked with & are bound to the pointer of the actual parameter
 (define bind_params
-  (lambda (formal_params actual_params state func_state throw classname)
+  (lambda (formal_params actual_params state func_state throw obj_instance)
     (cond
       [(null? formal_params) func_state]
       [(eq? (curr_param formal_params) 'this) (bind_params (next_ptr formal_params)
                                                            (next_param actual_params)
                                                            state
-                                                           (add_raw (curr_ptr formal_params) (get_class_closure classname (get_global_state state))))]
+                                                           (add_raw (curr_ptr formal_params) obj_instance))]
       [(eq? (curr_param formal_params) '&) (if (not (atom? (curr_param actual_params)))
                                                (error 'paramerror "Variable name expected, ~a received" (curr_param actual_params))
                                                (bind_params (next_ptr formal_params)
@@ -611,8 +639,7 @@
                      (lambda (break) (error 'breakerr "Invalid break location."))
                      (lambda (cont) (error 'conterror "Invalid continue location."))
                      (lambda (ex val) (error 'throwerror "Invalid throw location."))
-                     'dummy
-                     )))
+                     'dummy_class_name)))
 
 ; Our secondary pass through the file, executing whatever is in the declared main() function.
 ; (If there is no main function, then get_func_closure will issue an error.)
